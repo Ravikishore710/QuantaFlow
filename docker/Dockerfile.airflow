@@ -1,0 +1,12 @@
+FROM apache/airflow:3.0.0-python3.11
+
+USER root
+COPY pyproject.toml /opt/airflow/pyproject.toml
+
+USER airflow
+RUN pip install --no-cache-dir --user \
+    polars duckdb boto3 psycopg2-binary pydantic pydantic-settings pyyaml requests structlog
+
+COPY --chown=airflow:root src /opt/airflow/src
+COPY --chown=airflow:root scripts /opt/airflow/scripts
+ENV PYTHONPATH=/opt/airflow

@@ -1,0 +1,82 @@
+dataset: nyc_tlc_yellow
+version: 1
+columns:
+  - name: tpep_pickup_datetime
+    required: true
+    nullable: false
+    description: Pickup timestamp
+  - name: tpep_dropoff_datetime
+    required: true
+    nullable: false
+    description: Dropoff timestamp
+  - name: PULocationID
+    required: true
+    nullable: true
+    description: TLC taxi zone ID for pickup
+  - name: DOLocationID
+    required: true
+    nullable: true
+    description: TLC taxi zone ID for dropoff
+  - name: trip_distance
+    required: true
+    nullable: true
+    validation_rule: ">= 0"
+    description: Trip distance in miles
+  - name: passenger_count
+    required: true
+    nullable: true
+    validation_rule: ">= 0"
+    description: Number of passengers
+  - name: fare_amount
+    required: true
+    nullable: true
+    validation_rule: ">= 0"
+    description: Metered fare
+  - name: total_amount
+    required: true
+    nullable: true
+    description: Total charged amount including fees and tips
+  - name: VendorID
+    required: false
+    nullable: true
+    description: TLC code indicating the LPEP/TPEP provider
+  - name: RatecodeID
+    required: false
+    nullable: true
+    description: Final rate code in effect at the end of the trip
+  - name: store_and_fwd_flag
+    required: false
+    nullable: true
+    description: Flag indicating whether trip record was held in vehicle memory before sending
+  - name: payment_type
+    required: false
+    nullable: true
+    description: Numeric code signifying how the passenger paid
+  - name: extra
+    required: false
+    nullable: true
+    description: Miscellaneous extras and surcharges
+  - name: mta_tax
+    required: false
+    nullable: true
+    description: MTA tax automatically triggered based on metered rate
+  - name: tip_amount
+    required: false
+    nullable: true
+    description: Tip amount (credit card tips only)
+  - name: tolls_amount
+    required: false
+    nullable: true
+    description: Total amount of all tolls paid in trip
+  - name: improvement_surcharge
+    required: false
+    nullable: true
+    description: Improvement surcharge assessed at flag drop
+  - name: congestion_surcharge
+    required: false
+    nullable: true
+    description: NYS congestion surcharge
+  - name: Airport_fee
+    required: false
+    nullable: true
+    description: Airport fee for pickups at LGA and JFK

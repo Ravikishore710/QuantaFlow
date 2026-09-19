@@ -1,0 +1,40 @@
+dataset: noaa_ghcnh
+version: 1
+columns:
+  - name: timestamp
+    required: true
+    nullable: false
+    description: Observation timestamp in UTC
+  - name: station_id
+    required: true
+    nullable: false
+    description: GHCNh station identifier
+  - name: latitude
+    required: true
+    nullable: false
+  - name: longitude
+    required: true
+    nullable: false
+  - name: temperature
+    required: true
+    nullable: true
+  - name: dew_point
+    required: false
+    nullable: true
+  - name: wind_speed
+    required: false
+    nullable: true
+    validation_rule: ">= 0"
+  - name: precipitation
+    required: false
+    nullable: true
+    validation_rule: ">= 0"
+  - name: visibility
+    required: false
+    nullable: true
+  - name: pressure
+    required: false
+    nullable: true
+  - name: weather_condition
+    required: false
+    nullable: true

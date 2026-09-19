@@ -1,0 +1,4 @@
+benchmark_name,description,baseline_seconds,optimized_seconds,speedup_factor,notes
+Parquet vs CSV Scan,Scan & aggregate 100000 rows,0.0135,0.0127,1.06,Compression ratio 29.85x
+Eager vs Lazy Polars,Filter & group-by 150000 rows,0.0172,0.0055,3.14,Predicate & projection pushdown
+Partition Pushdown Scan,Scan 1 of 6 partitions (50000/300000 rows),0.0107,0.0085,1.25,Partition directory pruning

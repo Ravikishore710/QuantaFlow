@@ -1,0 +1,20 @@
+dataset: nyc_tlc_taxi_zone
+version: 1
+columns:
+  - name: LocationID
+    required: true
+    nullable: false
+    validation_rule: unique
+    description: Unique taxi zone identifier
+  - name: Borough
+    required: true
+    nullable: false
+    description: NYC borough name
+  - name: Zone
+    required: true
+    nullable: false
+    description: Taxi zone name
+  - name: service_zone
+    required: true
+    nullable: true
+    description: TLC service zone classification
