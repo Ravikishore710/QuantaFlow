@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import Any
 
 import polars as pl
 
@@ -15,19 +14,30 @@ class SilverTransformer:
         self,
         settings: Settings | None = None,
         quarantine_store: QuarantineStore | None = None,
+        max_trip_distance: float = 500.0,
+        max_fare_amount: float = 10000.0,
+        max_trip_duration_minutes: float = 1440.0,
     ) -> None:
         self.settings = settings or get_settings()
         self.silver_dir = self.settings.silver_dir
         self.silver_dir.mkdir(parents=True, exist_ok=True)
         self.quarantine_store = quarantine_store or QuarantineStore(settings=self.settings)
+        self.max_trip_distance = max_trip_distance
+        self.max_fare_amount = max_fare_amount
+        self.max_trip_duration_minutes = max_trip_duration_minutes
 
     def clean_and_transform_trips(self, bronze_trips_path: Path, period: str) -> Path:
         """Applies cleaning rules to bronze trips:
         - Non-negative distance (trip_distance >= 0.0)
         - Non-negative fare (fare_amount >= 0.0)
         - Non-negative total (total_amount >= 0.0)
+        - Consistency check (total_amount >= fare_amount)
         - Chronological timestamps (tpep_dropoff_datetime >= tpep_pickup_datetime)
         - Non-null location IDs (PULocationID, DOLocationID)
+        - Configurable upper-bound physics checks:
+          * trip_distance <= max_trip_distance (default: 500.0 miles)
+          * fare_amount <= max_fare_amount (default: $10,000.0)
+          * trip_duration_minutes <= max_trip_duration_minutes (default: 1440.0 mins / 24 hrs)
 
         Routes violating records to QuarantineStore (dead-letter queue).
         Deduplicates on compound business keys and generates derived fields.
@@ -40,30 +50,57 @@ class SilverTransformer:
         df = pl.read_parquet(bronze_trips_path)
         initial_count = len(df)
 
-        # 1. Validation filter: identify invalid records
-        valid_condition = (
+        duration_seconds_expr = (
+            (
+                pl.col("tpep_dropoff_datetime").cast(pl.Int64)
+                - pl.col("tpep_pickup_datetime").cast(pl.Int64)
+            )
+            / 1_000_000
+        )
+        duration_minutes_expr = duration_seconds_expr / 60.0
+
+        # 1. Base validation filter: identify rule violations (lower bounds, chronological, nulls)
+        base_valid_condition = (
             (pl.col("trip_distance") >= 0.0)
             & (pl.col("fare_amount") >= 0.0)
             & (pl.col("total_amount") >= 0.0)
+            & (pl.col("total_amount") >= pl.col("fare_amount"))
             & (pl.col("tpep_dropoff_datetime") >= pl.col("tpep_pickup_datetime"))
             & (pl.col("PULocationID").is_not_null())
             & (pl.col("DOLocationID").is_not_null())
         )
 
-        invalid_df = df.filter(~valid_condition)
-        if len(invalid_df) > 0:
-            sample_invalid: list[dict[str, Any]] = invalid_df.head(100).to_dicts()
+        invalid_base_df = df.filter(~base_valid_condition)
+        if len(invalid_base_df) > 0:
             self.quarantine_store.route_records(
                 dataset="nyc_tlc_yellow",
                 period=period,
                 stage="silver_trip_cleaning",
-                rejected_rows=sample_invalid,
+                rejected_rows=invalid_base_df.to_dicts(),
                 reason="failed_validation_rules",
             )
 
-        valid_df = df.filter(valid_condition)
+        # 2. Physics outlier validation: upper bounds on distance, fare, and duration
+        base_passed_df = df.filter(base_valid_condition)
+        physics_valid_condition = (
+            (pl.col("trip_distance") <= self.max_trip_distance)
+            & (pl.col("fare_amount") <= self.max_fare_amount)
+            & (duration_minutes_expr <= self.max_trip_duration_minutes)
+        )
 
-        # 2. Deduplication
+        physics_outliers_df = base_passed_df.filter(~physics_valid_condition)
+        if len(physics_outliers_df) > 0:
+            self.quarantine_store.route_records(
+                dataset="nyc_tlc_yellow",
+                period=period,
+                stage="silver_trip_cleaning",
+                rejected_rows=physics_outliers_df.to_dicts(),
+                reason="physics_outlier_violation",
+            )
+
+        valid_df = base_passed_df.filter(physics_valid_condition)
+
+        # 3. Deduplication
         dedup_keys = [
             "tpep_pickup_datetime",
             "tpep_dropoff_datetime",
@@ -75,18 +112,12 @@ class SilverTransformer:
         available_dedup_keys = [k for k in dedup_keys if k in valid_df.columns]
         cleaned_df = valid_df.unique(subset=available_dedup_keys)
 
-        # 3. Derived fields
+        # 4. Derived fields
         cleaned_df = cleaned_df.with_columns(
             [
                 pl.col("tpep_pickup_datetime").dt.date().alias("pickup_date"),
                 pl.col("tpep_pickup_datetime").dt.truncate("1h").alias("pickup_hour"),
-                (
-                    (
-                        pl.col("tpep_dropoff_datetime").cast(pl.Int64)
-                        - pl.col("tpep_pickup_datetime").cast(pl.Int64)
-                    )
-                    / 1_000_000
-                ).alias("trip_duration_seconds"),
+                duration_seconds_expr.alias("trip_duration_seconds"),
             ]
         )
 
