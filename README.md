@@ -31,14 +31,17 @@ QuantaFlow processes raw data through an idempotent, contract-enforced **Medalli
        ▼
 [Silver Layer: data/silver/]
   ├── Cleaning rules: non-negative fare, non-negative distance, chronological timestamps
+  ├── Physics bounds: trip_distance <= 500 mi, fare_amount <= $10,000, duration <= 24 hr
   ├── Non-conformant rows routed to Quarantine DLQ (data/quarantine/*.jsonl)
   ├── Deduplication on compound business keys
   └── Multi-source enrichment: Taxi Trips + Zone Metadata + Hourly Weather
        │
        ▼
-[Data Quality Framework: data/reports/]
-  └── Automated evaluation of 6 dimensions: Completeness, Validity, Uniqueness,
-      Consistency, Freshness, Volume (Saved as JSON audit reports)
+[Write-Audit-Publish (WAP) Circuit Breaker: data/reports/]
+  ├── Automated evaluation of 6 dimensions: Completeness, Validity, Uniqueness,
+  │   Consistency, Freshness, Volume (Saved as JSON audit reports)
+  └── WAP Gate: Halts publish to Gold/Warehouse if quality score < 85% or error checks fail;
+      dispatches webhooks to ALERT_WEBHOOK_URL
        │
        ▼
 [Gold Layer: data/gold/]
@@ -49,7 +52,7 @@ QuantaFlow processes raw data through an idempotent, contract-enforced **Medalli
        │
        ▼
 [Warehouse & Monitoring]
-  ├── Production Target: PostgreSQL 16 (Idempotent ON CONFLICT DO UPDATE)
+  ├── Production Target: PostgreSQL 16 (High-throughput COPY staging upsert)
   ├── Developer/Offline Engine: Embedded DuckDB (data/quantaflow.duckdb)
   └── Monitoring Tables: monitoring.pipeline_runs, monitoring.quality_results
 ```
@@ -62,7 +65,7 @@ To enable reliable continuous integration and local developer velocity alongside
 
 | Component | Production Target | Developer / Offline Target |
 | :--- | :--- | :--- |
-| **Warehouse** | **PostgreSQL 16** (`warehouse.*` schema, idempotent upserts) | **DuckDB** (`data/quantaflow.duckdb`, embedded zero-ops) |
+| **Warehouse** | **PostgreSQL 16** (`warehouse.*` schema, high-throughput `COPY` staging upserts) | **DuckDB** (`data/quantaflow.duckdb`, embedded zero-ops) |
 | **Object Store** | **MinIO / AWS S3** (`s3://quanta-flow/raw/...`) | **Local Filesystem** (`data/raw/` or `data/samples/`) |
 | **Manifest** | PostgreSQL `monitoring.file_manifest` | JSON File Store (`data/manifests/`) |
 | **Orchestration** | **Apache Airflow** (LocalExecutor via Docker Compose) | **Python CLI Runner** (`scripts/run_pipeline.py`) |
@@ -75,12 +78,13 @@ To enable reliable continuous integration and local developer velocity alongside
 ## 3. Data Cleaning & Business Rules
 
 All transformations enforce clear mathematical definitions across contracts, transformation code, and quality checks:
-- **Non-negative trip distance:** $\text{trip\_distance} \ge 0.0$
-- **Non-negative fare amount:** $\text{fare\_amount} \ge 0.0$
-- **Non-negative total amount:** $\text{total\_amount} \ge 0.0$
-- **Chronological ordering:** $\text{tpep\_dropoff\_datetime} \ge \text{tpep\_pickup\_datetime}$
-- **Consistency:** $\text{total\_amount} \ge \text{fare\_amount}$
-- **Quarantine Policy:** Records violating any of these constraints are not deleted; they are preserved in the **Quarantine Dead-Letter Queue** (`data/quarantine/`) with audit timestamps and violation metadata.
+- **Non-negative trip distance:** $\mathtt{trip\_distance} \ge 0.0$ (and physics upper-bound $\le 500.0\text{ mi}$)
+- **Non-negative fare amount:** $\mathtt{fare\_amount} \ge 0.0$ (and physics upper-bound $\le \$10,000.0$)
+- **Non-negative total amount:** $\mathtt{total\_amount} \ge 0.0$
+- **Chronological ordering:** $\mathtt{tpep\_dropoff\_datetime} \ge \mathtt{tpep\_pickup\_datetime}$ (and trip duration $\le 1440.0\text{ min} / 24\text{ hr}$)
+- **Consistency:** $\mathtt{total\_amount} \ge \mathtt{fare\_amount}$
+- **Quarantine Policy & Replay CLI:** Records violating any constraint are routed to the **Quarantine Dead-Letter Queue** (`data/quarantine/*.jsonl`) with explicit violation reason metadata. Operators can re-validate and replay quarantined records using `python scripts/replay_quarantine.py`.
+- **Write-Audit-Publish (WAP) Circuit Breaker:** Automated quality gate halts publication to Gold and Warehouse if error-level checks fail or pass rate falls below 85%, alerting external webhooks via `ALERT_WEBHOOK_URL`.
 
 ---
 
@@ -126,18 +130,23 @@ python -m venv .venv
 source .venv/bin/activate
 
 # 2. Install dependencies
-pip install -e ".[dev]"
+pip install -e ".[dev,airflow]"
 
-# 3. Run automated tests (28 tests across unit, contract, warehouse, DAG)
-pytest -v
+# 3. Run automated tests (64 tests across unit, contracts, integration, e2e)
+pytest tests/unit tests/contracts tests/integration tests/e2e --cov=src --cov-fail-under=85
 
-# 4. Run linter
-ruff check src scripts evaluation tests
+# 4. Run linter and typechecker
+ruff check src scripts tests
+mypy src scripts
 
 # 5. Run single month pipeline (e.g. 2024-01)
 python scripts/run_pipeline.py --period 2024-01 --skip-upload
 
-# 6. Run 6-month historical backfill (2024-01 to 2024-06)
+# 6. Replay quarantined records (Dead-Letter Queue audit & recovery)
+python scripts/replay_quarantine.py --period 2024-01 --dry-run
+python scripts/replay_quarantine.py --period 2024-01
+
+# 7. Run 6-month historical backfill (2024-01 to 2024-06)
 python scripts/run_backfill.py --start 2024-01 --end 2024-06 --use-synthetic
 ```
 
@@ -188,16 +197,26 @@ print(
 
 ## 8. Test Suite Summary
 
-The test suite contains **28 automated tests** passing with 100% green status:
-- `tests/contracts/`: YAML schema parsing, required column checks, evolution policies.
+The test suite contains **64 automated tests** passing with 100% green status and **$\ge 88\%$ test coverage** (`--cov-fail-under=85`):
+- `tests/unit/test_db_manager.py`: Centralized PostgreSQL and DuckDB connection handling, auto-fallback.
+- `tests/unit/test_silver.py`: Physics bounds ($\le 500\text{ mi}$, $\le \$10,000$), lower bounds, quarantine routing.
 - `tests/unit/test_bronze.py`: Lineage audit injection and schema typing.
-- `tests/unit/test_silver.py`: Non-negative rule filters, quarantine routing, deduplication.
 - `tests/unit/test_gold.py`: Exact column mappings and dimensional aggregations.
-- `tests/unit/test_quality_framework.py`: Completeness, validity, freshness, volume checks.
-- `tests/unit/test_warehouse.py`: DuckDB table loads, PostgreSQL upsert query generation, connection error handling.
+- `tests/unit/test_quality_framework.py`: Completeness, validity, freshness, volume checks, WAP gate circuit breaker, webhook alerting.
+- `tests/unit/test_warehouse.py`: DuckDB table loads, PostgreSQL COPY staging upsert, fallback handling.
+- `tests/unit/test_replay_quarantine.py`: Quarantine DLQ inspection, dry run, and live silver recovery.
 - `tests/unit/test_airflow_dag.py`: DAG bytecode compilation, AST structure, task callable execution.
+- `tests/contracts/`: YAML schema parsing, required column checks, evolution policies.
 - `tests/e2e/test_milestone1_idempotency.py`: Re-run skipping via cryptographic file manifest matching.
 - `tests/integration/test_end_to_end_pipeline.py`: Full raw $\rightarrow$ bronze $\rightarrow$ silver $\rightarrow$ gold integration flow.
+
+---
+
+## Governance & Contributing
+
+- [CHANGELOG.md](CHANGELOG.md): Complete release history and version upgrade log.
+- [CONTRIBUTING.md](CONTRIBUTING.md): Developer onboarding, coding standards, and PR requirements.
+- [SECURITY.md](SECURITY.md): Vulnerability reporting policy and security architecture overview.
 
 ---
 
