@@ -28,14 +28,9 @@ jobs:
       - name: Type check
         run: mypy src scripts
 
-      - name: Unit tests
-        run: pytest tests/unit -v
-
-      - name: Contract tests
-        run: pytest tests/contracts -v
-
-      - name: Integration tests
-        run: pytest tests/integration -v
+      - name: Run test suite with coverage
+        run: |
+          pytest tests/unit tests/contracts tests/integration tests/e2e --cov=src --cov-report=term-missing --cov-fail-under=80
 
       - name: DAG import check
         run: |

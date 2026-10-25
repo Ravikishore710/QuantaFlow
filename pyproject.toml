@@ -54,5 +54,17 @@ disallow_untyped_defs = true
 warn_unused_ignores = true
 
 [tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q --cov=src --cov-fail-under=80"
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.coverage.report]
+fail_under = 80
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == '__main__':",
+    "raise NotImplementedError",
+    "pass",
+]
