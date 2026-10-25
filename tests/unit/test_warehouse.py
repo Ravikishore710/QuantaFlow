@@ -132,6 +132,9 @@ def test_postgres_loader_executes_upsert_queries(
     with patch.object(loader, "_get_postgres_conn", return_value=mock_conn):
         loader.load_hourly_trip_metrics(sample_hourly_parquet)
         assert mock_cursor.execute.called
+        assert mock_cursor.copy_expert.called
+        copy_sql = mock_cursor.copy_expert.call_args[0][0]
+        assert "COPY tmp_hourly_trip_metrics" in copy_sql
         query = mock_cursor.execute.call_args[0][0]
         assert "INSERT INTO warehouse.hourly_trip_metrics" in query
         assert "ON CONFLICT (trip_hour) DO UPDATE" in query
@@ -143,7 +146,34 @@ def test_postgres_loader_executes_upsert_queries(
     with patch.object(loader, "_get_postgres_conn", return_value=mock_conn):
         loader.load_zone_daily_metrics(sample_zone_parquet)
         assert mock_cursor.execute.called
+        assert mock_cursor.copy_expert.called
         query = mock_cursor.execute.call_args[0][0]
         assert "INSERT INTO warehouse.zone_daily_metrics" in query
         assert "ON CONFLICT (trip_date, location_id) DO UPDATE" in query
         assert mock_conn.commit.called
+
+
+def test_postgres_loader_cursor_without_copy_expert_falls_back(
+    sample_hourly_parquet: Path,
+) -> None:
+    mock_conn = MagicMock()
+    # Cursor object specifically without copy_expert attribute
+    class NonCopyCursor:
+        def __init__(self) -> None:
+            self.execute = MagicMock()
+
+        def __enter__(self) -> "NonCopyCursor":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            pass
+
+    mock_cursor = NonCopyCursor()
+    mock_conn.cursor.return_value = mock_cursor
+
+    loader = WarehouseLoader(engine_mode="postgres")
+    with patch.object(loader, "_get_postgres_conn", return_value=mock_conn):
+        loader.load_hourly_trip_metrics(sample_hourly_parquet)
+        assert mock_cursor.execute.called
+        query = mock_cursor.execute.call_args[0][0]
+        assert "INSERT INTO warehouse.hourly_trip_metrics" in query

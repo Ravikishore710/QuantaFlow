@@ -1,3 +1,4 @@
+import io
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +54,51 @@ class WarehouseLoader:
     def _get_duckdb_conn(self) -> duckdb.DuckDBPyConnection:
         return self.db_manager.get_duckdb_connection()
 
+    def _bulk_upsert_postgres(
+        self,
+        conn: Any,
+        df: pl.DataFrame,
+        table_name: str,
+        columns: list[str],
+        conflict_keys: list[str],
+        update_columns: list[str],
+    ) -> None:
+        """High-throughput PostgreSQL bulk upsert using a temporary table and copy_expert."""
+        with conn.cursor() as cur:
+            if hasattr(cur, "copy_expert"):
+                temp_table = f"tmp_{table_name}"
+                cur.execute(
+                    f"CREATE TEMP TABLE {temp_table} "
+                    f"(LIKE warehouse.{table_name} INCLUDING DEFAULTS) ON COMMIT DROP;"
+                )
+                csv_buffer = io.StringIO()
+                df.select(columns).write_csv(csv_buffer)
+                csv_buffer.seek(0)
+                cols_str = ", ".join(columns)
+                copy_sql = f"COPY {temp_table} ({cols_str}) FROM STDIN WITH (FORMAT CSV, HEADER)"
+                cur.copy_expert(copy_sql, csv_buffer)
+
+                conflict_str = ", ".join(conflict_keys)
+                update_set_str = ", ".join(f"{col} = EXCLUDED.{col}" for col in update_columns)
+                upsert_sql = (
+                    f"INSERT INTO warehouse.{table_name} ({cols_str}) "
+                    f"SELECT {cols_str} FROM {temp_table} "
+                    f"ON CONFLICT ({conflict_str}) DO UPDATE SET {update_set_str};"
+                )
+                cur.execute(upsert_sql)
+            else:
+                cols_str = ", ".join(columns)
+                placeholders = ", ".join(["%s"] * len(columns))
+                conflict_str = ", ".join(conflict_keys)
+                update_set_str = ", ".join(f"{col} = EXCLUDED.{col}" for col in update_columns)
+                insert_sql = (
+                    f"INSERT INTO warehouse.{table_name} ({cols_str}) "
+                    f"VALUES ({placeholders}) "
+                    f"ON CONFLICT ({conflict_str}) DO UPDATE SET {update_set_str};"
+                )
+                for row in df.iter_rows(named=True):
+                    cur.execute(insert_sql, tuple(row[col] for col in columns))
+
     def load_hourly_trip_metrics(self, parquet_path: Path) -> int:
         df = pl.read_parquet(parquet_path)
         row_count = len(df)
@@ -63,38 +109,33 @@ class WarehouseLoader:
         conn = self._get_postgres_conn()
         if conn:
             try:
-                with conn.cursor() as cur:
-                    for row in df.iter_rows(named=True):
-                        cur.execute(
-                            """
-                            INSERT INTO warehouse.hourly_trip_metrics (
-                                trip_hour, trip_count, total_distance, total_fare,
-                                avg_fare, avg_distance, avg_trip_duration,
-                                avg_passenger_count, source_period
-                            )
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                            ON CONFLICT (trip_hour) DO UPDATE SET
-                                trip_count = EXCLUDED.trip_count,
-                                total_distance = EXCLUDED.total_distance,
-                                total_fare = EXCLUDED.total_fare,
-                                avg_fare = EXCLUDED.avg_fare,
-                                avg_distance = EXCLUDED.avg_distance,
-                                avg_trip_duration = EXCLUDED.avg_trip_duration,
-                                avg_passenger_count = EXCLUDED.avg_passenger_count,
-                                source_period = EXCLUDED.source_period;
-                            """,
-                            (
-                                row["trip_hour"],
-                                row["trip_count"],
-                                row["total_distance"],
-                                row["total_fare"],
-                                row["avg_fare"],
-                                row["avg_distance"],
-                                row["avg_trip_duration"],
-                                row["avg_passenger_count"],
-                                row["source_period"],
-                            ),
-                        )
+                self._bulk_upsert_postgres(
+                    conn=conn,
+                    df=df,
+                    table_name="hourly_trip_metrics",
+                    columns=[
+                        "trip_hour",
+                        "trip_count",
+                        "total_distance",
+                        "total_fare",
+                        "avg_fare",
+                        "avg_distance",
+                        "avg_trip_duration",
+                        "avg_passenger_count",
+                        "source_period",
+                    ],
+                    conflict_keys=["trip_hour"],
+                    update_columns=[
+                        "trip_count",
+                        "total_distance",
+                        "total_fare",
+                        "avg_fare",
+                        "avg_distance",
+                        "avg_trip_duration",
+                        "avg_passenger_count",
+                        "source_period",
+                    ],
+                )
                 conn.commit()
                 logger.info("postgres_hourly_trip_metrics_loaded", count=row_count)
             except PG_ERRORS as exc:
@@ -152,32 +193,28 @@ class WarehouseLoader:
         conn = self._get_postgres_conn()
         if conn:
             try:
-                with conn.cursor() as cur:
-                    for row in df.iter_rows(named=True):
-                        cur.execute(
-                            """
-                            INSERT INTO warehouse.zone_daily_metrics (
-                                trip_date, location_id, trip_count, total_fare,
-                                avg_distance, avg_duration, source_period
-                            )
-                            VALUES (%s, %s, %s, %s, %s, %s, %s)
-                            ON CONFLICT (trip_date, location_id) DO UPDATE SET
-                                trip_count = EXCLUDED.trip_count,
-                                total_fare = EXCLUDED.total_fare,
-                                avg_distance = EXCLUDED.avg_distance,
-                                avg_duration = EXCLUDED.avg_duration,
-                                source_period = EXCLUDED.source_period;
-                            """,
-                            (
-                                row["trip_date"],
-                                row["location_id"],
-                                row["trip_count"],
-                                row["total_fare"],
-                                row["avg_distance"],
-                                row["avg_duration"],
-                                row["source_period"],
-                            ),
-                        )
+                self._bulk_upsert_postgres(
+                    conn=conn,
+                    df=df,
+                    table_name="zone_daily_metrics",
+                    columns=[
+                        "trip_date",
+                        "location_id",
+                        "trip_count",
+                        "total_fare",
+                        "avg_distance",
+                        "avg_duration",
+                        "source_period",
+                    ],
+                    conflict_keys=["trip_date", "location_id"],
+                    update_columns=[
+                        "trip_count",
+                        "total_fare",
+                        "avg_distance",
+                        "avg_duration",
+                        "source_period",
+                    ],
+                )
                 conn.commit()
                 logger.info("postgres_zone_daily_metrics_loaded", count=row_count)
             except PG_ERRORS as exc:
@@ -230,38 +267,33 @@ class WarehouseLoader:
         conn = self._get_postgres_conn()
         if conn:
             try:
-                with conn.cursor() as cur:
-                    for row in df.iter_rows(named=True):
-                        cur.execute(
-                            """
-                            INSERT INTO warehouse.weather_impact_metrics (
-                                weather_hour, trip_count, avg_trip_distance,
-                                avg_trip_duration, avg_total_amount, precipitation,
-                                temperature, wind_speed, source_period
-                            )
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                            ON CONFLICT (weather_hour) DO UPDATE SET
-                                trip_count = EXCLUDED.trip_count,
-                                avg_trip_distance = EXCLUDED.avg_trip_distance,
-                                avg_trip_duration = EXCLUDED.avg_trip_duration,
-                                avg_total_amount = EXCLUDED.avg_total_amount,
-                                precipitation = EXCLUDED.precipitation,
-                                temperature = EXCLUDED.temperature,
-                                wind_speed = EXCLUDED.wind_speed,
-                                source_period = EXCLUDED.source_period;
-                            """,
-                            (
-                                row["weather_hour"],
-                                row["trip_count"],
-                                row["avg_trip_distance"],
-                                row["avg_trip_duration"],
-                                row["avg_total_amount"],
-                                row["precipitation"],
-                                row["temperature"],
-                                row["wind_speed"],
-                                row["source_period"],
-                            ),
-                        )
+                self._bulk_upsert_postgres(
+                    conn=conn,
+                    df=df,
+                    table_name="weather_impact_metrics",
+                    columns=[
+                        "weather_hour",
+                        "trip_count",
+                        "avg_trip_distance",
+                        "avg_trip_duration",
+                        "avg_total_amount",
+                        "precipitation",
+                        "temperature",
+                        "wind_speed",
+                        "source_period",
+                    ],
+                    conflict_keys=["weather_hour"],
+                    update_columns=[
+                        "trip_count",
+                        "avg_trip_distance",
+                        "avg_trip_duration",
+                        "avg_total_amount",
+                        "precipitation",
+                        "temperature",
+                        "wind_speed",
+                        "source_period",
+                    ],
+                )
                 conn.commit()
                 logger.info("postgres_weather_impact_metrics_loaded", count=row_count)
             except PG_ERRORS as exc:
@@ -320,35 +352,33 @@ class WarehouseLoader:
         conn = self._get_postgres_conn()
         if conn:
             try:
-                with conn.cursor() as cur:
-                    for row in df.iter_rows(named=True):
-                        cur.execute(
-                            """
-                            INSERT INTO warehouse.daily_system_metrics (
-                                run_date, rows_ingested, rows_valid, rows_rejected,
-                                files_processed, processing_time_seconds
-                            )
-                            VALUES (%s, %s, %s, %s, %s, %s)
-                            ON CONFLICT (run_date) DO UPDATE SET
-                                rows_ingested = EXCLUDED.rows_ingested,
-                                rows_valid = EXCLUDED.rows_valid,
-                                rows_rejected = EXCLUDED.rows_rejected,
-                                files_processed = EXCLUDED.files_processed,
-                                processing_time_seconds = EXCLUDED.processing_time_seconds;
-                            """,
-                            (
-                                row["run_date"],
-                                row["rows_ingested"],
-                                row["rows_valid"],
-                                row["rows_rejected"],
-                                row["files_processed"],
-                                row["processing_time_seconds"],
-                            ),
-                        )
+                self._bulk_upsert_postgres(
+                    conn=conn,
+                    df=df,
+                    table_name="daily_system_metrics",
+                    columns=[
+                        "run_date",
+                        "rows_ingested",
+                        "rows_valid",
+                        "rows_rejected",
+                        "files_processed",
+                        "processing_time_seconds",
+                    ],
+                    conflict_keys=["run_date"],
+                    update_columns=[
+                        "rows_ingested",
+                        "rows_valid",
+                        "rows_rejected",
+                        "files_processed",
+                        "processing_time_seconds",
+                    ],
+                )
                 conn.commit()
                 logger.info("postgres_daily_system_metrics_loaded", count=row_count)
             except PG_ERRORS as exc:
-                logger.debug("postgres_load_fallback", table="daily_system_metrics", error=str(exc))
+                logger.debug(
+                    "postgres_load_fallback", table="daily_system_metrics", error=str(exc)
+                )
             finally:
                 conn.close()
 
