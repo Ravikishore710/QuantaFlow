@@ -10,6 +10,18 @@ from src.common.logging import get_logger
 from src.config.settings import Settings, get_settings
 from src.validation.quality_framework import QualitySuiteReport
 
+try:
+    import psycopg2
+
+    PG_ERRORS: tuple[type[Exception], ...] = (
+        psycopg2.OperationalError,
+        psycopg2.Error,
+        OSError,
+        ConnectionError,
+    )
+except ImportError:  # pragma: no cover
+    PG_ERRORS = (OSError, ConnectionError)
+
 logger = get_logger(__name__)
 
 
@@ -32,7 +44,9 @@ class PipelineMonitor:
                 connect_timeout=2,
             )
             return conn
-        except Exception:
+        except PG_ERRORS:
+            return None
+        except ImportError:  # pragma: no cover
             return None
 
     def start_pipeline_run(
@@ -75,7 +89,7 @@ class PipelineMonitor:
                         ),
                     )
                 conn.commit()
-            except Exception as exc:
+            except PG_ERRORS as exc:
                 logger.debug("postgres_pipeline_run_start_fallback", error=str(exc))
             finally:
                 conn.close()
@@ -121,7 +135,7 @@ class PipelineMonitor:
                 ],
             )
             con.close()
-        except Exception as exc:
+        except (duckdb.Error, OSError) as exc:
             logger.debug("duckdb_pipeline_run_start_fallback", error=str(exc))
 
     def finish_pipeline_run(
@@ -156,7 +170,7 @@ class PipelineMonitor:
                         ),
                     )
                 conn.commit()
-            except Exception as exc:
+            except PG_ERRORS as exc:
                 logger.debug("postgres_pipeline_run_finish_fallback", error=str(exc))
             finally:
                 conn.close()
@@ -173,7 +187,7 @@ class PipelineMonitor:
                 [finished_at, status, rows_in, rows_out, rows_rejected, run_id],
             )
             con.close()
-        except Exception as exc:
+        except (duckdb.Error, OSError) as exc:
             logger.debug("duckdb_pipeline_run_finish_fallback", error=str(exc))
 
     def record_quality_results(self, report: QualitySuiteReport) -> None:
@@ -203,7 +217,7 @@ class PipelineMonitor:
                             ),
                         )
                 conn.commit()
-            except Exception as exc:
+            except PG_ERRORS as exc:
                 logger.debug("postgres_quality_results_fallback", error=str(exc))
             finally:
                 conn.close()
@@ -214,7 +228,6 @@ class PipelineMonitor:
             con.execute(
                 """
                 CREATE TABLE IF NOT EXISTS monitoring.quality_results (
-                    id BIGINT,
                     run_id VARCHAR,
                     dataset VARCHAR,
                     partition VARCHAR,
@@ -249,5 +262,5 @@ class PipelineMonitor:
                     ],
                 )
             con.close()
-        except Exception as exc:
+        except (duckdb.Error, OSError) as exc:
             logger.debug("duckdb_quality_results_fallback", error=str(exc))

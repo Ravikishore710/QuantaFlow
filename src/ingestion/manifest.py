@@ -4,8 +4,21 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from src.common.errors import ManifestPersistenceError
 from src.common.logging import get_logger
 from src.config.settings import Settings, get_settings
+
+try:
+    import psycopg2
+
+    PG_ERRORS: tuple[type[Exception], ...] = (
+        psycopg2.OperationalError,
+        psycopg2.Error,
+        OSError,
+        ConnectionError,
+    )
+except ImportError:  # pragma: no cover
+    PG_ERRORS = (OSError, ConnectionError)
 
 logger = get_logger(__name__)
 
@@ -54,7 +67,10 @@ class ManifestStore:
                 connect_timeout=2,
             )
             return conn
-        except Exception:
+        except PG_ERRORS as exc:
+            logger.debug("postgres_manifest_conn_offline", error=str(exc))
+            return None
+        except ImportError:  # pragma: no cover
             return None
 
     def exists(self, dataset: str, period: str, sha256: str) -> bool:
@@ -76,7 +92,7 @@ class ManifestStore:
                     if row is not None:
                         conn.close()
                         return True
-            except Exception as exc:
+            except PG_ERRORS as exc:
                 logger.debug("postgres_manifest_check_fallback", error=str(exc))
             finally:
                 conn.close()
@@ -88,13 +104,19 @@ class ManifestStore:
         try:
             existing = json.loads(path.read_text(encoding="utf-8"))
             return existing.get("sha256") == sha256 and existing.get("status") == "validated"
-        except Exception:
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.debug("manifest_read_fallback", path=str(path), error=str(exc))
             return False
 
     def save(self, record: ManifestRecord) -> Path:
         # Save to local JSON
         path = self._path_for(record.dataset, record.period)
-        path.write_text(json.dumps(record.to_dict(), indent=2), encoding="utf-8")
+        try:
+            path.write_text(json.dumps(record.to_dict(), indent=2), encoding="utf-8")
+        except OSError as exc:
+            raise ManifestPersistenceError(
+                f"Failed to persist manifest record for {record.dataset} {record.period} to {path}: {exc}"
+            ) from exc
 
         # Save to Postgres if available
         conn = self._get_db_connection()
@@ -132,7 +154,7 @@ class ManifestStore:
                     )
                 conn.commit()
                 logger.info("postgres_manifest_saved", dataset=record.dataset, period=record.period)
-            except Exception as exc:
+            except PG_ERRORS as exc:
                 logger.debug("postgres_manifest_save_fallback", error=str(exc))
             finally:
                 conn.close()
@@ -143,7 +165,12 @@ class ManifestStore:
         path = self._path_for(dataset, period)
         if not path.exists():
             return None
-        return ManifestRecord(**json.loads(path.read_text(encoding="utf-8")))
+        try:
+            return ManifestRecord(**json.loads(path.read_text(encoding="utf-8")))
+        except (json.JSONDecodeError, OSError, TypeError) as exc:
+            raise ManifestPersistenceError(
+                f"Failed to read manifest record at {path}: {exc}"
+            ) from exc
 
 
 def utc_now_iso() -> str:

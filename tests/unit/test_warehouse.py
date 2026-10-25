@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import polars as pl
 import pytest
 
+from src.common.errors import WarehouseConnectionError
 from src.warehouse.loader import WarehouseLoader
 
 
@@ -111,8 +112,8 @@ def test_duckdb_loading_all_marts(
 def test_postgres_strict_mode_raises_when_unreachable(sample_hourly_parquet: Path) -> None:
     loader = WarehouseLoader(engine_mode="postgres")
     with (
-        patch("psycopg.connect", side_effect=Exception("Connection refused")),
-        pytest.raises(ConnectionError, match="PostgreSQL production warehouse connection failed"),
+        patch("psycopg2.connect", side_effect=ConnectionRefusedError("Connection refused")),
+        pytest.raises(WarehouseConnectionError, match="PostgreSQL production warehouse connection failed"),
     ):
         loader.load_hourly_trip_metrics(sample_hourly_parquet)
 
