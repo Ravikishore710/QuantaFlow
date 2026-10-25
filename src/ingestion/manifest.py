@@ -4,21 +4,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from src.common.db import PG_ERRORS, DatabaseConnectionManager
 from src.common.errors import ManifestPersistenceError
 from src.common.logging import get_logger
 from src.config.settings import Settings, get_settings
-
-try:
-    import psycopg2
-
-    PG_ERRORS: tuple[type[Exception], ...] = (
-        psycopg2.OperationalError,
-        psycopg2.Error,
-        OSError,
-        ConnectionError,
-    )
-except ImportError:  # pragma: no cover
-    PG_ERRORS = (OSError, ConnectionError)
 
 logger = get_logger(__name__)
 
@@ -47,6 +36,7 @@ class ManifestStore:
         self.settings = settings or get_settings()
         self.manifest_dir = manifest_dir or self.settings.manifest_dir
         self.manifest_dir.mkdir(parents=True, exist_ok=True)
+        self.db_manager = DatabaseConnectionManager(settings=self.settings, engine_mode="auto")
         self._db_conn = None
 
     def _path_for(self, dataset: str, period: str) -> Path:
@@ -55,23 +45,7 @@ class ManifestStore:
         return dataset_dir / f"{period}.json"
 
     def _get_db_connection(self) -> Any:
-        try:
-            import psycopg2
-
-            conn = psycopg2.connect(
-                host=self.settings.postgres_host,
-                port=self.settings.postgres_port,
-                dbname=self.settings.postgres_db,
-                user=self.settings.postgres_user,
-                password=self.settings.postgres_password,
-                connect_timeout=2,
-            )
-            return conn
-        except PG_ERRORS as exc:
-            logger.debug("postgres_manifest_conn_offline", error=str(exc))
-            return None
-        except ImportError:  # pragma: no cover
-            return None
+        return self.db_manager.get_postgres_connection()
 
     def exists(self, dataset: str, period: str, sha256: str) -> bool:
         # Check Postgres first if available

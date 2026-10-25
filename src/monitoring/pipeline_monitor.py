@@ -6,21 +6,10 @@ from typing import Any
 
 import duckdb
 
+from src.common.db import PG_ERRORS, DatabaseConnectionManager
 from src.common.logging import get_logger
 from src.config.settings import Settings, get_settings
 from src.validation.quality_framework import QualitySuiteReport
-
-try:
-    import psycopg2
-
-    PG_ERRORS: tuple[type[Exception], ...] = (
-        psycopg2.OperationalError,
-        psycopg2.Error,
-        OSError,
-        ConnectionError,
-    )
-except ImportError:  # pragma: no cover
-    PG_ERRORS = (OSError, ConnectionError)
 
 logger = get_logger(__name__)
 
@@ -28,26 +17,27 @@ logger = get_logger(__name__)
 class PipelineMonitor:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
-        self.local_db_path = Path("data/quantaflow.duckdb")
-        self.local_db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._local_db_path = Path("data/quantaflow.duckdb")
+        self.db_manager = DatabaseConnectionManager(
+            settings=self.settings,
+            engine_mode="auto",
+            duckdb_path=self._local_db_path,
+        )
+
+    @property
+    def local_db_path(self) -> Path:
+        return self.db_manager.duckdb_path
+
+    @local_db_path.setter
+    def local_db_path(self, path: Path) -> None:
+        self._local_db_path = path
+        self.db_manager.duckdb_path = path
 
     def _get_postgres_conn(self) -> Any:
-        try:
-            import psycopg2
+        return self.db_manager.get_postgres_connection()
 
-            conn = psycopg2.connect(
-                host=self.settings.postgres_host,
-                port=self.settings.postgres_port,
-                dbname=self.settings.postgres_db,
-                user=self.settings.postgres_user,
-                password=self.settings.postgres_password,
-                connect_timeout=2,
-            )
-            return conn
-        except PG_ERRORS:
-            return None
-        except ImportError:  # pragma: no cover
-            return None
+    def _get_duckdb_conn(self) -> duckdb.DuckDBPyConnection:
+        return self.db_manager.get_duckdb_connection()
 
     def start_pipeline_run(
         self,
@@ -96,7 +86,7 @@ class PipelineMonitor:
 
         # Local DuckDB write
         try:
-            con = duckdb.connect(str(self.local_db_path))
+            con = self._get_duckdb_conn()
             con.execute("CREATE SCHEMA IF NOT EXISTS monitoring;")
             con.execute(
                 """
@@ -177,7 +167,7 @@ class PipelineMonitor:
 
         # Local DuckDB update
         try:
-            con = duckdb.connect(str(self.local_db_path))
+            con = self._get_duckdb_conn()
             con.execute(
                 """
                 UPDATE monitoring.pipeline_runs
@@ -223,7 +213,7 @@ class PipelineMonitor:
                 conn.close()
 
         try:
-            con = duckdb.connect(str(self.local_db_path))
+            con = self._get_duckdb_conn()
             con.execute("CREATE SCHEMA IF NOT EXISTS monitoring;")
             con.execute(
                 """

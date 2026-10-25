@@ -4,16 +4,9 @@ from typing import Any
 import duckdb
 import polars as pl
 
-from src.common.errors import WarehouseConnectionError
+from src.common.db import PG_ERRORS, DatabaseConnectionManager
 from src.common.logging import get_logger
 from src.config.settings import Settings, get_settings
-
-try:
-    import psycopg2
-
-    PG_ERRORS: tuple[type[Exception], ...] = (psycopg2.Error, OSError, ConnectionError)
-except ImportError:  # pragma: no cover
-    PG_ERRORS = (OSError, ConnectionError)
 
 logger = get_logger(__name__)
 
@@ -38,56 +31,27 @@ class WarehouseLoader:
         """
         self.settings = settings or get_settings()
         self.engine_mode = engine_mode.lower()
-        self.local_db_path = duckdb_path or Path("data/quantaflow.duckdb")
-        self.local_db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._local_db_path = duckdb_path or Path("data/quantaflow.duckdb")
+        self.db_manager = DatabaseConnectionManager(
+            settings=self.settings,
+            engine_mode=self.engine_mode,
+            duckdb_path=self._local_db_path,
+        )
+
+    @property
+    def local_db_path(self) -> Path:
+        return self.db_manager.duckdb_path
+
+    @local_db_path.setter
+    def local_db_path(self, path: Path) -> None:
+        self._local_db_path = path
+        self.db_manager.duckdb_path = path
 
     def _get_postgres_conn(self) -> Any:
-        if self.engine_mode == "duckdb":
-            return None
-
-        try:
-            try:
-                import psycopg
-
-                return psycopg.connect(
-                    host=self.settings.postgres_host,
-                    port=self.settings.postgres_port,
-                    dbname=self.settings.postgres_db,
-                    user=self.settings.postgres_user,
-                    password=self.settings.postgres_password,
-                    connect_timeout=2,
-                )
-            except ImportError:
-                import psycopg2
-
-                return psycopg2.connect(
-                    host=self.settings.postgres_host,
-                    port=self.settings.postgres_port,
-                    dbname=self.settings.postgres_db,
-                    user=self.settings.postgres_user,
-                    password=self.settings.postgres_password,
-                    connect_timeout=2,
-                )
-        except (psycopg2.Error, OSError, ConnectionError, Exception) as exc:
-            if self.engine_mode == "postgres":
-                raise WarehouseConnectionError(
-                    f"PostgreSQL production warehouse connection failed: {exc}. "
-                    f"Target host {self.settings.postgres_host}:{self.settings.postgres_port}. "
-                    "Ensure PostgreSQL is running, or use engine_mode='duckdb' / 'auto'."
-                ) from exc
-            logger.info(
-                "postgres_offline_fallback_active",
-                detail="PostgreSQL unavailable; using local DuckDB warehouse engine.",
-            )
-            return None
+        return self.db_manager.get_postgres_connection()
 
     def _get_duckdb_conn(self) -> duckdb.DuckDBPyConnection:
-        try:
-            return duckdb.connect(str(self.local_db_path))
-        except (duckdb.Error, OSError, RuntimeError) as exc:
-            raise WarehouseConnectionError(
-                f"DuckDB warehouse connection failed at {self.local_db_path}: {exc}"
-            ) from exc
+        return self.db_manager.get_duckdb_connection()
 
     def load_hourly_trip_metrics(self, parquet_path: Path) -> int:
         df = pl.read_parquet(parquet_path)
