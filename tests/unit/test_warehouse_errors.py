@@ -1,6 +1,7 @@
 from pathlib import Path
 from unittest.mock import patch
 
+import polars as pl
 import psycopg2
 import pytest
 
@@ -22,29 +23,27 @@ def test_quantaflow_error_inheritance() -> None:
 
 def test_postgres_strict_mode_raises_warehouse_connection_error(tmp_path: Path) -> None:
     parquet_path = tmp_path / "dummy.parquet"
-    import polars as pl
     pl.DataFrame({"trip_hour": [1]}).write_parquet(parquet_path)
 
     loader = WarehouseLoader(engine_mode="postgres")
     with (
         patch("psycopg2.connect", side_effect=psycopg2.OperationalError("Connection refused")),
-        pytest.raises(WarehouseConnectionError, match="PostgreSQL production warehouse connection failed"),
+        pytest.raises(WarehouseConnectionError, match="PostgreSQL production warehouse"),
     ):
         loader.load_hourly_trip_metrics(parquet_path)
 
 
 def test_duckdb_connect_failure_raises_warehouse_connection_error(tmp_path: Path) -> None:
     parquet_path = tmp_path / "dummy.parquet"
-    import polars as pl
     pl.DataFrame({"trip_hour": [1]}).write_parquet(parquet_path)
 
-    # Directory where file expected causes duckdb connect failure
     invalid_db_path = tmp_path / "nonexistent_dir" / "subdir" / "db.duckdb"
     loader = WarehouseLoader(engine_mode="duckdb", duckdb_path=invalid_db_path)
-    # Remove directory to induce duckdb IO/connection error if needed
-    with patch("duckdb.connect", side_effect=RuntimeError("DuckDB lock collision")):
-        with pytest.raises(WarehouseConnectionError, match="DuckDB warehouse connection failed"):
-            loader.load_hourly_trip_metrics(parquet_path)
+    with (
+        patch("duckdb.connect", side_effect=RuntimeError("DuckDB lock collision")),
+        pytest.raises(WarehouseConnectionError, match="DuckDB warehouse connection failed"),
+    ):
+        loader.load_hourly_trip_metrics(parquet_path)
 
 
 def test_manifest_store_save_raises_manifest_persistence_error(tmp_path: Path) -> None:
@@ -62,9 +61,11 @@ def test_manifest_store_save_raises_manifest_persistence_error(tmp_path: Path) -
         pipeline_version="0.1.0",
         status="validated",
     )
-    with patch("pathlib.Path.write_text", side_effect=OSError("Read-only file system")):
-        with pytest.raises(ManifestPersistenceError, match="Failed to persist manifest record"):
-            store.save(record)
+    with (
+        patch("pathlib.Path.write_text", side_effect=OSError("Read-only file system")),
+        pytest.raises(ManifestPersistenceError, match="Failed to persist manifest"),
+    ):
+        store.save(record)
 
 
 def test_manifest_store_load_corrupt_file_raises_manifest_persistence_error(tmp_path: Path) -> None:

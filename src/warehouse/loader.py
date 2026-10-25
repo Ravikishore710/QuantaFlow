@@ -68,7 +68,7 @@ class WarehouseLoader:
                     password=self.settings.postgres_password,
                     connect_timeout=2,
                 )
-        except (*PG_ERRORS, Exception) as exc:
+        except (psycopg2.Error, OSError, ConnectionError, Exception) as exc:
             if self.engine_mode == "postgres":
                 raise WarehouseConnectionError(
                     f"PostgreSQL production warehouse connection failed: {exc}. "

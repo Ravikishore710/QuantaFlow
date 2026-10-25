@@ -3,9 +3,8 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import polars as pl
-import pytest
 
-from src.sources.base import DiscoveredFile, DownloadedFile
+from src.sources.base import DownloadedFile
 from src.sources.noaa_weather import NOAAWeatherSource
 from src.sources.synthetic import generate_synthetic_taxi_data, generate_synthetic_weather_data
 from src.sources.taxi_zone import TaxiZoneSource
@@ -24,7 +23,9 @@ def test_generate_synthetic_taxi_data(tmp_path: Path) -> None:
 
 def test_generate_synthetic_weather_data(tmp_path: Path) -> None:
     target = tmp_path / "weather.parquet"
-    out = generate_synthetic_weather_data(period="2024-01", station_id="USW00094728", target_path=target)
+    out = generate_synthetic_weather_data(
+        period="2024-01", station_id="USW00094728", target_path=target
+    )
     assert out.exists()
     df = pl.read_parquet(out)
     assert len(df) == 744  # January has 31 days * 24 hours
@@ -40,7 +41,12 @@ def test_taxi_zone_source(tmp_path: Path) -> None:
 
     # Test download with existing file
     local_csv = tmp_path / "taxi_zone_lookup.csv"
-    local_csv.write_text("LocationID,Borough,Zone,service_zone\n1,Manhattan,Central Park,Yellow Zone\n2,Queens,JFK Airport,Airports\n")
+    csv_content = (
+        "LocationID,Borough,Zone,service_zone\n"
+        "1,Manhattan,Central Park,Yellow Zone\n"
+        "2,Queens,JFK Airport,Airports\n"
+    )
+    local_csv.write_text(csv_content)
 
     downloaded = source.download(discovered, tmp_path)
     assert downloaded.local_path == local_csv
@@ -53,8 +59,15 @@ def test_taxi_zone_source(tmp_path: Path) -> None:
 
     # Test validate fails on non-unique LocationID
     bad_csv = tmp_path / "bad.csv"
-    bad_csv.write_text("LocationID,Borough,Zone,service_zone\n1,Manhattan,Central Park,Yellow Zone\n1,Queens,JFK Airport,Airports\n")
-    bad_downloaded = DownloadedFile(discovered=discovered, local_path=bad_csv, file_size_bytes=100)
+    bad_content = (
+        "LocationID,Borough,Zone,service_zone\n"
+        "1,Manhattan,Central Park,Yellow Zone\n"
+        "1,Queens,JFK Airport,Airports\n"
+    )
+    bad_csv.write_text(bad_content)
+    bad_downloaded = DownloadedFile(
+        discovered=discovered, local_path=bad_csv, file_size_bytes=100
+    )
     bad_validation = source.validate(bad_downloaded)
     assert bad_validation.passed is False
     assert any("not unique" in err for err in bad_validation.errors)
@@ -66,7 +79,10 @@ def test_taxi_zone_download_via_requests(tmp_path: Path) -> None:
 
     dest_dir = tmp_path / "fresh"
     mock_resp = MagicMock()
-    mock_resp.content = b"LocationID,Borough,Zone,service_zone\n1,Manhattan,Central Park,Yellow Zone\n"
+    mock_resp.content = (
+        b"LocationID,Borough,Zone,service_zone\n"
+        b"1,Manhattan,Central Park,Yellow Zone\n"
+    )
     mock_resp.raise_for_status = MagicMock()
 
     with patch("requests.get", return_value=mock_resp):
@@ -112,7 +128,9 @@ def test_noaa_weather_source(tmp_path: Path) -> None:
     local_pq = dest_dir / "ghcnh_USW00094728_2024_01.parquet"
 
     # Pre-generate sample
-    generate_synthetic_weather_data("2024-01", station_id="USW00094728", target_path=local_pq)
+    generate_synthetic_weather_data(
+        "2024-01", station_id="USW00094728", target_path=local_pq
+    )
 
     downloaded = source.download(discovered, dest_dir)
     assert downloaded.local_path == local_pq

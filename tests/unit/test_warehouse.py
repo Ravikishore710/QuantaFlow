@@ -113,7 +113,7 @@ def test_postgres_strict_mode_raises_when_unreachable(sample_hourly_parquet: Pat
     loader = WarehouseLoader(engine_mode="postgres")
     with (
         patch("psycopg2.connect", side_effect=ConnectionRefusedError("Connection refused")),
-        pytest.raises(WarehouseConnectionError, match="PostgreSQL production warehouse connection failed"),
+        pytest.raises(WarehouseConnectionError, match="PostgreSQL production warehouse"),
     ):
         loader.load_hourly_trip_metrics(sample_hourly_parquet)
 

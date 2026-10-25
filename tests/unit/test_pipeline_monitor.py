@@ -30,15 +30,20 @@ def test_pipeline_monitor_start_and_finish_run_duckdb(monitor: PipelineMonitor) 
     monitor.start_pipeline_run(run_id=run_id, pipeline_name="nyc_mobility", period="2024-01")
 
     con = duckdb.connect(str(monitor.local_db_path))
-    res = con.execute("SELECT run_id, pipeline_name, status FROM monitoring.pipeline_runs WHERE run_id = ?", [run_id]).fetchall()
+    query = "SELECT run_id, pipeline_name, status FROM monitoring.pipeline_runs WHERE run_id = ?"
+    res = con.execute(query, [run_id]).fetchall()
     assert len(res) == 1
     assert res[0][1] == "nyc_mobility"
     assert res[0][2] == "running"
 
-    monitor.finish_pipeline_run(run_id=run_id, status="success", rows_in=100, rows_out=95, rows_rejected=5)
-    res_after = con.execute(
-        "SELECT status, rows_in, rows_out, rows_rejected FROM monitoring.pipeline_runs WHERE run_id = ?", [run_id]
-    ).fetchall()
+    monitor.finish_pipeline_run(
+        run_id=run_id, status="success", rows_in=100, rows_out=95, rows_rejected=5
+    )
+    update_q = (
+        "SELECT status, rows_in, rows_out, rows_rejected "
+        "FROM monitoring.pipeline_runs WHERE run_id = ?"
+    )
+    res_after = con.execute(update_q, [run_id]).fetchall()
     con.close()
 
     assert len(res_after) == 1
@@ -53,7 +58,11 @@ def test_pipeline_monitor_december_interval(monitor: PipelineMonitor) -> None:
     monitor.start_pipeline_run(run_id=run_id, pipeline_name="nyc_mobility", period="2024-12")
 
     con = duckdb.connect(str(monitor.local_db_path))
-    res = con.execute("SELECT strftime(data_interval_end, '%Y-%m-%d') FROM monitoring.pipeline_runs WHERE run_id = ?", [run_id]).fetchone()
+    q = (
+        "SELECT strftime(data_interval_end, '%Y-%m-%d') "
+        "FROM monitoring.pipeline_runs WHERE run_id = ?"
+    )
+    res = con.execute(q, [run_id]).fetchone()
     con.close()
     assert res is not None
     assert res[0] == "2024-12-31"
@@ -86,7 +95,11 @@ def test_pipeline_monitor_record_quality_results(monitor: PipelineMonitor) -> No
     monitor.record_quality_results(report)
 
     con = duckdb.connect(str(monitor.local_db_path))
-    res = con.execute("SELECT run_id, check_name, status, rows_checked FROM monitoring.quality_results WHERE run_id = ?", [run_id]).fetchall()
+    q = (
+        "SELECT run_id, check_name, status, rows_checked "
+        "FROM monitoring.quality_results WHERE run_id = ?"
+    )
+    res = con.execute(q, [run_id]).fetchall()
     con.close()
 
     assert len(res) == 1

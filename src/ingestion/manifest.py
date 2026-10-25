@@ -114,9 +114,11 @@ class ManifestStore:
         try:
             path.write_text(json.dumps(record.to_dict(), indent=2), encoding="utf-8")
         except OSError as exc:
-            raise ManifestPersistenceError(
-                f"Failed to persist manifest record for {record.dataset} {record.period} to {path}: {exc}"
-            ) from exc
+            msg = (
+                f"Failed to persist manifest for {record.dataset} "
+                f"{record.period} to {path}: {exc}"
+            )
+            raise ManifestPersistenceError(msg) from exc
 
         # Save to Postgres if available
         conn = self._get_db_connection()
