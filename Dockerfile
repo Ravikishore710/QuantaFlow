@@ -18,4 +18,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy source code and scripts
 COPY . .
 
+# Create non-root system user and configure ownership
+RUN useradd -m -u 10001 quantaflow && chown -R quantaflow:quantaflow /app
+USER quantaflow
+
 ENTRYPOINT ["python", "scripts/run_pipeline.py"]
