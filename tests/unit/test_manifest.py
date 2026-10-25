@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from src.ingestion.manifest import ManifestRecord, ManifestStore, utc_now_iso
 
@@ -21,6 +22,7 @@ def make_record(sha256: str = "abc123", status: str = "validated") -> ManifestRe
 
 def test_manifest_round_trip(tmp_path: Path) -> None:
     store = ManifestStore(tmp_path)
+    store._get_db_connection = lambda: None  # type: ignore[method-assign]
     record = make_record()
 
     store.save(record)
@@ -31,6 +33,7 @@ def test_manifest_round_trip(tmp_path: Path) -> None:
 
 def test_manifest_exists_is_idempotent(tmp_path: Path) -> None:
     store = ManifestStore(tmp_path)
+    store._get_db_connection = lambda: None  # type: ignore[method-assign]
     record = make_record()
     store.save(record)
 
@@ -41,7 +44,24 @@ def test_manifest_exists_is_idempotent(tmp_path: Path) -> None:
 
 def test_manifest_failed_validation_is_not_treated_as_processed(tmp_path: Path) -> None:
     store = ManifestStore(tmp_path)
+    store._get_db_connection = lambda: None  # type: ignore[method-assign]
     record = make_record(status="validation_failed")
     store.save(record)
 
     assert store.exists("nyc_tlc_yellow", "2024-01", "abc123") is False
+
+
+def test_manifest_postgres_save_and_exists(tmp_path: Path) -> None:
+    store = ManifestStore(tmp_path)
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+    mock_cur.fetchone.return_value = (1,)
+
+    with patch.object(store, "_get_db_connection", return_value=mock_conn):
+        record = make_record()
+        store.save(record)
+        assert mock_cur.execute.called
+        assert mock_conn.commit.called
+
+        assert store.exists("nyc_tlc_yellow", "2024-01", "abc123") is True
