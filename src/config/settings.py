@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     minio_secret_key: str = "changeme123"
     minio_bucket: str = "quanta-flow"
 
+    alert_webhook_url: str = ""
+
     pipeline_version: str = "0.1.0"
     data_interval_start: str = "2024-01"
     data_interval_end: str = "2024-06"

@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import polars as pl  # noqa: E402
 
+from src.common.errors import DataQualityGateError
 from src.common.hashing import schema_hash, sha256_file
 from src.common.logging import configure_logging, get_logger
 from src.common.run_context import RunContext
@@ -22,7 +23,7 @@ from src.transformation.bronze import BronzeTransformer
 from src.transformation.gold import GoldTransformer
 from src.transformation.quarantine import QuarantineStore
 from src.transformation.silver import SilverTransformer
-from src.validation.quality_framework import DataQualityFramework
+from src.validation.quality_framework import DataQualityFramework, send_quality_alert
 from src.warehouse.loader import WarehouseLoader
 
 logger = get_logger(__name__)
@@ -182,6 +183,29 @@ def run_pipeline(period: str, skip_upload: bool = False) -> int:
     dq = DataQualityFramework(settings)
     report = dq.evaluate_trips(silver_trips_df, run_id=run_ctx.run_id, period=period)
     monitor.record_quality_results(report)
+
+    rejected_rows = quarantine_store.get_rejected_count("nyc_tlc_yellow", period)
+    rows_valid = len(silver_trips_df)
+    rows_ingested = tlc_validation.row_count
+
+    try:
+        dq.enforce_wap_gate(report)
+    except DataQualityGateError as gate_err:
+        logger.error(
+            "pipeline_wap_gate_tripped",
+            run_id=run_ctx.run_id,
+            error=str(gate_err),
+            failed_checks=gate_err.failed_checks,
+        )
+        send_quality_alert(report.to_dict(), settings.alert_webhook_url)
+        monitor.finish_pipeline_run(
+            run_id=run_ctx.run_id,
+            status="failed",
+            rows_in=rows_ingested,
+            rows_out=rows_valid,
+            rows_rejected=rejected_rows,
+        )
+        return 1
 
     # -------------------------------------------------------------
     # 7. Gold Transformation

@@ -1,14 +1,40 @@
 import json
+import urllib.error
+import urllib.request
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from typing import Any
 
 import polars as pl
 
+from src.common.errors import DataQualityGateError
 from src.common.logging import get_logger
 from src.config.settings import Settings, get_settings
 
 logger = get_logger(__name__)
+
+
+def send_quality_alert(payload: dict[str, Any], webhook_url: str | None = None) -> bool:
+    """Send an alert payload to a configured webhook endpoint."""
+    if not webhook_url:
+        return False
+    try:
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            webhook_url,
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return bool(200 <= resp.status < 300)
+    except Exception as exc:
+        logger.warning(
+            "webhook_alert_dispatch_failed",
+            webhook=webhook_url,
+            error=str(exc),
+        )
+        return False
 
 
 @dataclass
@@ -152,36 +178,41 @@ class DataQualityFramework:
         )
 
         # 4. Consistency: total_amount >= fare_amount
-        if "total_amount" in df.columns and "fare_amount" in df.columns:
-            inconsistent_count = len(df.filter(pl.col("total_amount") < pl.col("fare_amount")))
-        else:
-            inconsistent_count = 0
+        inconsistent_totals = (
+            len(df.filter(pl.col("total_amount") < pl.col("fare_amount")))
+            if "total_amount" in df.columns and "fare_amount" in df.columns
+            else 0
+        )
         checks.append(
             QualityCheckResult(
-                check_name="fare_total_consistency",
+                check_name="total_amount_fare_consistency",
                 dimension="consistency",
-                severity="warning",
+                severity="error",
                 rows_checked=rows_total,
-                violations=inconsistent_count,
-                status="passed" if inconsistent_count == 0 else "failed",
-                details={"total_less_than_fare": inconsistent_count},
+                violations=inconsistent_totals,
+                status="passed" if inconsistent_totals == 0 else "failed",
+                details={"fare_exceeds_total_count": inconsistent_totals},
             )
         )
 
-        # 5. Freshness: Timestamps in bounds of period
-        if "tpep_pickup_datetime" in df.columns and rows_total > 0:
-            year, month = period.split("-")
-            out_of_month = len(
-                df.filter(
-                    (pl.col("tpep_pickup_datetime").dt.year() != int(year))
-                    | (pl.col("tpep_pickup_datetime").dt.month() != int(month))
+        # 5. Freshness: Pickups within partition month
+        try:
+            year, month = map(int, period.split("-"))
+            out_of_month = (
+                len(
+                    df.filter(
+                        (pl.col("tpep_pickup_datetime").dt.year() != year)
+                        | (pl.col("tpep_pickup_datetime").dt.month() != month)
+                    )
                 )
+                if "tpep_pickup_datetime" in df.columns
+                else 0
             )
-        else:
+        except Exception:
             out_of_month = 0
         checks.append(
             QualityCheckResult(
-                check_name="pickup_timestamp_period_freshness",
+                check_name="pickup_datetime_partition_alignment",
                 dimension="freshness",
                 severity="warning",
                 rows_checked=rows_total,
@@ -241,3 +272,65 @@ class DataQualityFramework:
             report=str(report_path),
         )
         return report
+
+    def enforce_wap_gate(
+        self,
+        report: QualitySuiteReport | dict[str, Any],
+        min_score: float = 0.85,
+        max_quarantine_rate: float = 0.15,
+    ) -> None:
+        """Enforce Write-Audit-Publish gate.
+
+        Raises DataQualityGateError if overall status is 'failed', critical error checks
+        fail, or score falls below min_score.
+        """
+        if isinstance(report, QualitySuiteReport):
+            total = report.total_checks
+            passed = report.passed_checks
+            failed_error_checks = [
+                c.check_name
+                for c in report.checks
+                if c.status == "failed" and c.severity == "error"
+            ]
+            all_failed = [c.check_name for c in report.checks if c.status == "failed"]
+            overall_status = report.overall_status
+        else:
+            total = int(report.get("total_checks", 0))
+            passed = int(report.get("passed_checks", 0))
+            checks_list = report.get("checks", [])
+            failed_error_checks = [
+                str(c.get("check_name", ""))
+                for c in checks_list
+                if c.get("status") == "failed" and c.get("severity") == "error"
+            ]
+            all_failed = [
+                str(c.get("check_name", ""))
+                for c in checks_list
+                if c.get("status") == "failed"
+            ]
+            overall_status = str(report.get("overall_status", "passed"))
+
+        score = (passed / total) if total > 0 else 1.0
+
+        if overall_status == "failed" or failed_error_checks or score < min_score:
+            reasons: list[str] = []
+            if failed_error_checks:
+                reasons.append(f"critical checks failed: {failed_error_checks}")
+            if score < min_score:
+                reasons.append(f"score {score:.2f} < threshold {min_score:.2f}")
+            if overall_status == "failed" and not reasons:
+                reasons.append("overall_status is failed")
+
+            msg = f"WAP gate tripped: {', '.join(reasons)}"
+            logger.error(
+                "wap_gate_circuit_broken",
+                score=score,
+                min_score=min_score,
+                failed_critical=failed_error_checks,
+            )
+            raise DataQualityGateError(
+                message=msg,
+                failed_checks=all_failed,
+                measured_score=score,
+                threshold=min_score,
+            )
