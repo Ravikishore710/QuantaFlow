@@ -1,0 +1,6 @@
+aws_region        = "us-east-1"
+environment       = "prod"
+project_name      = "quantaflow"
+vpc_cidr          = "10.0.0.0/16"
+db_instance_class = "db.t4g.medium"
+alert_webhook_url = "https://hooks.slack.com/services/EXAMPLE/WEBHOOK/URL"
