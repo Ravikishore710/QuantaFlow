@@ -15,12 +15,17 @@ logger = get_logger(__name__)
 
 
 class PipelineMonitor:
-    def __init__(self, settings: Settings | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        duckdb_path: Path | None = None,
+        engine_mode: str = "auto",
+    ) -> None:
         self.settings = settings or get_settings()
-        self._local_db_path = Path("data/quantaflow.duckdb")
+        self._local_db_path = duckdb_path or Path("data/quantaflow.duckdb")
         self.db_manager = DatabaseConnectionManager(
             settings=self.settings,
-            engine_mode="auto",
+            engine_mode=engine_mode,
             duckdb_path=self._local_db_path,
         )
 
