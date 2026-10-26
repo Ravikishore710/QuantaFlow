@@ -1,0 +1,21 @@
+LocationID,Borough,Zone,service_zone
+1,EWR,"Newark Airport",EWR
+2,Queens,"Jamaica Bay",Boro Zone
+3,Bronx,"Allerton/Pelham Gardens",Boro Zone
+4,Manhattan,"Alphabet City",Yellow Zone
+5,Staten Island,"Arden Heights",Boro Zone
+6,Staten Island,"Arrochar/Fort Wadsworth",Boro Zone
+7,Queens,"Astoria",Boro Zone
+8,Queens,"Astoria Park",Boro Zone
+9,Queens,"Auburndale",Boro Zone
+10,Queens,"Baisley Park",Boro Zone
+11,Brooklyn,"Bath Beach",Boro Zone
+12,Manhattan,"Battery Park",Yellow Zone
+13,Manhattan,"Battery Park City",Yellow Zone
+14,Brooklyn,"Bay Ridge",Boro Zone
+15,Queens,"Bay Terrace/Fort Totten",Boro Zone
+16,Queens,"Bayside",Boro Zone
+17,Brooklyn,"Bedford",Boro Zone
+18,Bronx,"Bedford Park",Boro Zone
+19,Queens,"Bellerose",Boro Zone
+20,Bronx,"Belmont",Boro Zone

@@ -1,7 +1,6 @@
+import shutil
 from pathlib import Path
 from unittest.mock import patch
-
-import polars as pl
 
 from src.common.hashing import sha256_file
 from src.ingestion.manifest import ManifestRecord, ManifestStore, utc_now_iso
@@ -9,25 +8,12 @@ from src.sources.base import DownloadedFile
 from src.sources.tlc_taxi import TLCTaxiSource
 
 
-def build_sample_parquet(path: Path) -> None:
-    frame = pl.DataFrame(
-        {
-            "tpep_pickup_datetime": ["2024-01-01T00:00:00"] * 5,
-            "tpep_dropoff_datetime": ["2024-01-01T00:15:00"] * 5,
-            "PULocationID": [1, 2, 3, 4, 5],
-            "DOLocationID": [1, 2, 3, 4, 5],
-            "trip_distance": [1.5] * 5,
-            "passenger_count": [1] * 5,
-            "fare_amount": [10.0] * 5,
-            "total_amount": [12.5] * 5,
-        }
-    )
-    frame.write_parquet(path)
-
-
 def test_second_run_is_skipped_when_manifest_already_validated(tmp_path: Path) -> None:
+    fixtures_dir = Path(__file__).resolve().parent.parent / "fixtures"
+    fixture_parquet = fixtures_dir / "tlc_yellow_2024-01.parquet"
     sample_path = tmp_path / "yellow_trip_2024_01.parquet"
-    build_sample_parquet(sample_path)
+    shutil.copyfile(fixture_parquet, sample_path)
+
     checksum = sha256_file(sample_path)
 
     manifest_store = ManifestStore(tmp_path / "manifests")
@@ -40,7 +26,7 @@ def test_second_run_is_skipped_when_manifest_already_validated(tmp_path: Path) -
             downloaded_at=utc_now_iso(),
             sha256=checksum,
             file_size_bytes=sample_path.stat().st_size,
-            row_count=5,
+            row_count=50,
             schema_hash="irrelevant-for-this-test",
             pipeline_version="0.1.0",
             status="validated",

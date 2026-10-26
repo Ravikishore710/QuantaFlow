@@ -26,7 +26,12 @@ class SourceConnector(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def download(self, discovered: DiscoveredFile, destination_dir: Path) -> DownloadedFile:
+    def download(
+        self,
+        discovered: DiscoveredFile,
+        destination_dir: Path,
+        fixture_path: Path | None = None,
+    ) -> DownloadedFile:
         raise NotImplementedError
 
     @abstractmethod

@@ -1,8 +1,11 @@
 from pathlib import Path
 
 import polars as pl
+import pytest
 
 from src.sources.base import DiscoveredFile, DownloadedFile
+from src.sources.noaa_weather import NOAAWeatherSource
+from src.sources.taxi_zone import TaxiZoneSource
 from src.sources.tlc_taxi import TLCTaxiSource
 
 
@@ -58,3 +61,45 @@ def test_tlc_validate_fails_when_required_column_missing(tmp_path: Path) -> None
 
     assert result.passed is False
     assert any("missing required columns" in error for error in result.errors)
+
+
+def test_offline_fixtures_resolution_with_zero_network(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fixtures_dir = Path(__file__).resolve().parent.parent / "fixtures"
+    assert fixtures_dir.exists()
+
+    monkeypatch.setenv("QUANTAFLOW_OFFLINE_FIXTURES_DIR", str(fixtures_dir))
+
+    # Block any network calls
+    def fail_on_network(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("External network request forbidden during offline test!")
+
+    monkeypatch.setattr("requests.get", fail_on_network)
+
+    # 1. TLC Taxi offline download & validation
+    tlc_src = TLCTaxiSource()
+    tlc_disc = tlc_src.discover("2024-01")
+    tlc_down = tlc_src.download(tlc_disc, tmp_path / "tlc")
+    assert tlc_down.local_path.exists()
+    tlc_val = tlc_src.validate(tlc_down)
+    assert tlc_val.passed is True
+    assert tlc_val.row_count == 50
+
+    # 2. Taxi Zone offline download & validation
+    zone_src = TaxiZoneSource()
+    zone_disc = zone_src.discover("2024-01")
+    zone_down = zone_src.download(zone_disc, tmp_path / "zones")
+    assert zone_down.local_path.exists()
+    zone_val = zone_src.validate(zone_down)
+    assert zone_val.passed is True
+    assert zone_val.row_count == 20
+
+    # 3. NOAA Weather offline download & validation
+    weather_src = NOAAWeatherSource()
+    weather_disc = weather_src.discover("2024-01")
+    weather_down = weather_src.download(weather_disc, tmp_path / "weather")
+    assert weather_down.local_path.exists()
+    weather_val = weather_src.validate(weather_down)
+    assert weather_val.passed is True
+    assert weather_val.row_count == 48

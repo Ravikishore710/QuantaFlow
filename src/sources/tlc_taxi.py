@@ -1,3 +1,5 @@
+import os
+import shutil
 from pathlib import Path
 
 import polars as pl
@@ -36,7 +38,12 @@ class TLCTaxiSource(SourceConnector):
             source_format="parquet",
         )
 
-    def download(self, discovered: DiscoveredFile, destination_dir: Path) -> DownloadedFile:
+    def download(
+        self,
+        discovered: DiscoveredFile,
+        destination_dir: Path,
+        fixture_path: Path | None = None,
+    ) -> DownloadedFile:
         destination_dir.mkdir(parents=True, exist_ok=True)
         file_name = f"yellow_trip_{discovered.period.replace('-', '_')}.parquet"
         local_path = destination_dir / file_name
@@ -44,6 +51,23 @@ class TLCTaxiSource(SourceConnector):
         if local_path.exists() and local_path.stat().st_size > 0:
             file_size_bytes = local_path.stat().st_size
             logger.info("file_already_present", target=str(local_path), size_bytes=file_size_bytes)
+            return DownloadedFile(
+                discovered=discovered, local_path=local_path, file_size_bytes=file_size_bytes
+            )
+
+        # Check for explicit fixture_path or QUANTAFLOW_OFFLINE_FIXTURES_DIR
+        resolved_fixture = fixture_path
+        if not resolved_fixture:
+            env_fixtures = os.environ.get("QUANTAFLOW_OFFLINE_FIXTURES_DIR")
+            if env_fixtures:
+                cand = Path(env_fixtures) / f"tlc_yellow_{discovered.period}.parquet"
+                if cand.exists():
+                    resolved_fixture = cand
+
+        if resolved_fixture and resolved_fixture.exists():
+            shutil.copyfile(resolved_fixture, local_path)
+            file_size_bytes = local_path.stat().st_size
+            logger.info("fixture_copied", fixture=str(resolved_fixture), target=str(local_path))
             return DownloadedFile(
                 discovered=discovered, local_path=local_path, file_size_bytes=file_size_bytes
             )
