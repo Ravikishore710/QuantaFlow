@@ -1,6 +1,6 @@
 [project]
 name = "quanta-flow"
-version = "0.1.0"
+version = "1.2.0"
 description = "Incremental multi-source data engineering pipeline for NYC urban mobility and weather data"
 requires-python = ">=3.11"
 readme = "README.md"
