@@ -12,6 +12,7 @@ import polars as pl  # noqa: E402
 
 from src.common.logging import configure_logging, get_logger  # noqa: E402
 from src.config.settings import get_settings  # noqa: E402
+from src.validation.ingress import QuarantineReplayRequest  # noqa: E402
 
 logger = get_logger(__name__)
 
@@ -55,8 +56,16 @@ def replay_quarantine(
     dry_run: bool = False,
 ) -> dict[str, int]:
     """Scan quarantine files, re-validate records, and optionally recover valid rows to Silver."""
-    quarantine_dir = Path(quarantine_dir)
-    silver_dir = Path(silver_dir)
+    req = QuarantineReplayRequest(
+        period=period,
+        quarantine_dir=quarantine_dir,
+        silver_dir=silver_dir,
+        dry_run=dry_run,
+    )
+    quarantine_dir = req.quarantine_dir
+    silver_dir = req.silver_dir
+    period = req.period
+    dry_run = req.dry_run
 
     search_dir = quarantine_dir
     if period:

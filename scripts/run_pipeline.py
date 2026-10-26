@@ -24,6 +24,7 @@ from src.transformation.bronze import BronzeTransformer
 from src.transformation.gold import GoldTransformer
 from src.transformation.quarantine import QuarantineStore
 from src.transformation.silver import SilverTransformer
+from src.validation.ingress import PipelineExecutionRequest
 from src.validation.quality_framework import DataQualityFramework, send_quality_alert
 from src.warehouse.loader import WarehouseLoader
 
@@ -31,6 +32,10 @@ logger = get_logger(__name__)
 
 
 def run_pipeline(period: str, skip_upload: bool = False) -> int:
+    req = PipelineExecutionRequest(period=period, skip_upload=skip_upload)
+    period = req.period
+    skip_upload = req.skip_upload
+
     configure_logging()
     settings = get_settings()
     init_error_tracking(settings.sentry_dsn, settings.environment, settings.pipeline_version)

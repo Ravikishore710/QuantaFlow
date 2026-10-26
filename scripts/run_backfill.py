@@ -13,6 +13,7 @@ from src.sources.synthetic import (  # noqa: E402
     generate_synthetic_taxi_data,
     generate_synthetic_weather_data,
 )
+from src.validation.ingress import BackfillExecutionRequest  # noqa: E402
 
 logger = get_logger(__name__)
 
@@ -36,6 +37,14 @@ def generate_period_range(start_period: str, end_period: str) -> list[str]:
 def run_backfill(
     start_period: str, end_period: str, use_synthetic: bool = False, skip_upload: bool = True
 ) -> int:
+    req = BackfillExecutionRequest(
+        start_period=start_period,
+        end_period=end_period,
+        use_synthetic=use_synthetic,
+        skip_upload=skip_upload,
+    )
+    start_period = req.start_period
+    end_period = req.end_period
     configure_logging()
     periods = generate_period_range(start_period, end_period)
     logger.info("backfill_started", periods=periods, use_synthetic=use_synthetic)

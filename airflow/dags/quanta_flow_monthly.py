@@ -8,7 +8,10 @@ DEFAULT_PERIOD = "2024-01"
 
 @dag(
     dag_id="quanta_flow_monthly_pipeline",
-    description="Incremental multi-source ingestion, bronze/silver/gold transformation, quality validation, and warehouse loading",
+    description=(
+        "Incremental multi-source ingestion, bronze/silver/gold transformation, "
+        "quality validation, and warehouse loading"
+    ),
     schedule=None,
     start_date=datetime(2024, 1, 1),
     catchup=False,
@@ -18,10 +21,13 @@ DEFAULT_PERIOD = "2024-01"
 def quanta_flow_monthly_pipeline() -> None:
     @task
     def run_end_to_end_pipeline(period: str) -> dict:
-        """Executes the full pipeline: ingestion, bronze, silver, gold, quality, and warehouse load."""
+        """Executes the full pipeline: ingestion, bronze, silver, gold, quality,
+        and warehouse load."""
         from scripts.run_pipeline import run_pipeline
+        from src.validation.ingress import PipelineExecutionRequest
 
-        exit_code = run_pipeline(period=period, skip_upload=False)
+        req = PipelineExecutionRequest(period=period, skip_upload=False)
+        exit_code = run_pipeline(period=req.period, skip_upload=req.skip_upload)
         if exit_code != 0:
             raise RuntimeError(f"QuantaFlow pipeline execution failed for period {period}")
         return {"period": period, "status": "success"}
