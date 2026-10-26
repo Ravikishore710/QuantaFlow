@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-10-26
+
+### Added
+- **Modular Terraform Infrastructure-as-Code (`terraform/`):** Enterprise-grade AWS deployment with modules for S3 Lakehouse (AES-256 encryption, versioning, lifecycle transitions), RDS PostgreSQL 16 (storage encryption, Secrets Manager automated credentials), and ECS Fargate cluster (KMS-encrypted CloudWatch logs, container insights).
+- **Offline Integration Testing & Ephemeral Test Stack:** Local offline fixtures (`tests/fixtures/`) and isolated ephemeral Docker Compose environment (`docker-compose.test.yml`) allowing full E2E pipeline testing with zero live external network calls.
+- **Container Health Check Subsystem (`src/monitoring/health.py`, `scripts/health_check.py`):** Multi-probe health checker serving `/health`, `/healthz`, and `/readyz` over HTTP and CLI probe supporting engine status, storage readiness, and disk space monitoring.
+- **Observability & Error Tracking:** Integrated Sentry error tracking (`src/common/error_tracking.py`) and correlation ID tracing across all `structlog` events and run context metadata.
+- **Secret Management Layer (`src/common/secrets.py`):** Multi-backend secret resolution supporting mounted files (`/run/secrets/`), AWS Secrets Manager, and environment variables, with automated logging redaction.
+- **Strict Ingress Schema Gates (`src/validation/ingress.py`):** Fail-closed Pydantic v2 validation protecting pipeline execution, backfills, quarantine replay, and Airflow DAGs.
+- **Fresh-Clone Verification Script (`scripts/verify_fresh_clone.sh`):** Strict bash script validating environment installation, linting, typing, test suite, and health checks on fresh clones.
+- **Hardened CI/CD Pipeline:** 4 structured GitHub Actions jobs (`quality-and-tests`, `fresh-clone-check`, `iac-validation`, `deploy`) enforcing `uv lock --check`, Terraform validation, and Docker container deployment probes.
+
+### Changed
+- Elevated test coverage floor from 85% to 90% (`92.72%` achieved across 108 automated tests).
+- Exported pinned `requirements.txt` and refreshed `uv.lock` with explicit version bounds across all runtime dependencies.
+
+---
+
 ## [1.1.0] - 2026-10-26
 
 ### Added

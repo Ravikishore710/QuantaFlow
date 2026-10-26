@@ -18,6 +18,10 @@ Thank you for your interest in contributing to **QuantaFlow**! We welcome bug fi
 git clone https://github.com/Ravikishore710/QuantaFlow.git
 cd QuantaFlow
 
+# Run automated fresh-clone verification
+bash scripts/verify_fresh_clone.sh
+
+# Or manual setup:
 # Create virtual environment
 python -m venv .venv
 
@@ -43,13 +47,16 @@ Before opening a pull request, ensure all linters, type checks, and tests pass:
 
 ```bash
 # Run Ruff linter and formatter checks
-ruff check src scripts tests
+ruff check src scripts tests evaluation airflow
 
 # Run static type checking with Mypy
 mypy src scripts
 
-# Run full test suite with >=85% coverage floor
-pytest tests/unit tests/contracts tests/integration tests/e2e --cov=src --cov-fail-under=85
+# Run full test suite with >=90% coverage floor
+pytest tests/unit tests/contracts tests/integration tests/e2e --cov=src --cov-fail-under=90
+
+# Run pipeline health check probe
+python scripts/health_check.py --mode cli
 
 # Run dependency vulnerability audit
 pip-audit --desc on

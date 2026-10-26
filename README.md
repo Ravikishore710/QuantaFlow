@@ -122,22 +122,31 @@ The pipeline has been verified on both single-month live production data and a m
 ### Local Developer Setup (Windows / Mac / Linux)
 
 ```bash
-# 1. Create and activate virtual environment
+# 1. Automated Fresh-Clone Verification (Recommended)
+bash scripts/verify_fresh_clone.sh
+
+# Or manual step-by-step setup:
+# 2. Create and activate virtual environment
 python -m venv .venv
 # On Windows:
 .\.venv\Scripts\Activate.ps1
 # On Linux/macOS:
 source .venv/bin/activate
 
-# 2. Install dependencies
+# 3. Install dependencies in editable mode
+pip install --upgrade pip
 pip install -e ".[dev,airflow]"
 
-# 3. Run automated tests (64 tests across unit, contracts, integration, e2e)
-pytest tests/unit tests/contracts tests/integration tests/e2e --cov=src --cov-fail-under=85
+# 4. Run automated test suite (108 tests with >=90% coverage enforcement)
+pytest tests/unit tests/contracts tests/integration tests/e2e --cov=src --cov-fail-under=90
 
-# 4. Run linter and typechecker
-ruff check src scripts tests
+# 5. Run linter and typechecker
+ruff check src scripts tests evaluation airflow
 mypy src scripts
+
+# 6. Execute system health check probe
+python scripts/health_check.py --mode cli
+```
 
 # 5. Run single month pipeline (e.g. 2024-01)
 python scripts/run_pipeline.py --period 2024-01 --skip-upload
@@ -195,10 +204,35 @@ print(
 
 ---
 
-## 8. Test Suite Summary
+## 8. Enterprise Infrastructure as Code & Security
 
-The test suite contains **64 automated tests** passing with 100% green status and **$\ge 88\%$ test coverage** (`--cov-fail-under=85`):
+### Terraform Modular Cloud Deployment (`terraform/`)
+QuantaFlow provides modular, zero-hardcoded-secret Terraform configurations targetable across environments:
+- **`terraform/modules/storage/`**: Secure AWS S3 lakehouse with AES-256 encryption, bucket versioning, lifecycle transitions to Glacier, and strict public access block.
+- **`terraform/modules/warehouse/`**: Production RDS PostgreSQL 16 with AES-256 encrypted storage, multi-AZ option, automated Secrets Manager password generation, and private VPC subnet placement.
+- **`terraform/modules/orchestration/`**: ECS Fargate cluster with KMS-encrypted CloudWatch log groups, container insights, and integrated container health probes.
+
+### Observability, Error Tracking & Secret Management
+- **Correlation ID Tracing:** Every execution automatically generates a unique `correlation_id` propagated across all `structlog` events and metrics tables for distributed traceability.
+- **Sentry Error Tracking:** Integrated via `src/common/error_tracking.py` capturing pipeline crashes with full operational context and tags.
+- **SecretManager:** Layered credential resolution (`src/common/secrets.py`) prioritizing Kubernetes/Docker mounted secret files (`/run/secrets/`), AWS Secrets Manager (`boto3`), and local environment variables, with automatic sensitive data redaction in logs.
+- **Strict Ingress Schema Validation:** Every CLI command, backfill request, and Airflow DAG entrypoint is gated by strict Pydantic v2 schemas (`src/validation/ingress.py`).
+- **Health Check Probes:** Lightweight HTTP handler (`scripts/health_check.py --serve --port 8081`) and CLI probe (`scripts/health_check.py --mode cli`) serving `/health`, `/healthz`, and `/readyz` for Kubernetes/Docker container readiness.
+
+---
+
+## 9. Test Suite Summary
+
+The test suite contains **108 automated tests** passing with 100% green status and **$\ge 92\%$ test coverage** (`--cov-fail-under=90`):
 - `tests/unit/test_db_manager.py`: Centralized PostgreSQL and DuckDB connection handling, auto-fallback.
+- `tests/unit/test_health_check.py`: System health checks, HTTP readiness probes, CLI invocation codes.
+- `tests/unit/test_error_tracking.py`: Sentry SDK initialization and pipeline exception capture.
+- `tests/unit/test_secrets.py`: Multi-backend secret resolution and credential masking.
+- `tests/unit/test_ingress_validation.py`: Pydantic boundary schema validation for CLI and Airflow inputs.
+- `tests/unit/test_terraform_iac.py`: Modular Terraform structure, KMS encryption, and security policies.
+- `tests/unit/test_dependency_sync.py`: Synchronization across pyproject.toml, requirements.txt, and uv.lock.
+- `tests/unit/test_verify_script.py`: Clean environment verification script validation.
+- `tests/unit/test_ci_workflow.py`: GitHub Actions 4-stage CI/CD pipeline validation.
 - `tests/unit/test_silver.py`: Physics bounds ($\le 500\text{ mi}$, $\le \$10,000$), lower bounds, quarantine routing.
 - `tests/unit/test_bronze.py`: Lineage audit injection and schema typing.
 - `tests/unit/test_gold.py`: Exact column mappings and dimensional aggregations.
@@ -207,8 +241,8 @@ The test suite contains **64 automated tests** passing with 100% green status an
 - `tests/unit/test_replay_quarantine.py`: Quarantine DLQ inspection, dry run, and live silver recovery.
 - `tests/unit/test_airflow_dag.py`: DAG bytecode compilation, AST structure, task callable execution.
 - `tests/contracts/`: YAML schema parsing, required column checks, evolution policies.
-- `tests/e2e/test_milestone1_idempotency.py`: Re-run skipping via cryptographic file manifest matching.
-- `tests/integration/test_end_to_end_pipeline.py`: Full raw $\rightarrow$ bronze $\rightarrow$ silver $\rightarrow$ gold integration flow.
+- `tests/e2e/test_milestone1_idempotency.py`: Re-run skipping via cryptographic file manifest matching with offline fixtures.
+- `tests/integration/test_end_to_end_pipeline.py`: Full raw $\rightarrow$ bronze $\rightarrow$ silver $\rightarrow$ gold integration flow running 100% offline.
 
 ---
 
