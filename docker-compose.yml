@@ -35,6 +35,35 @@ services:
       timeout: 5s
       retries: 10
 
+  pipeline:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: quantaflow-pipeline
+    command: ["python", "scripts/health_check.py", "--serve", "--port", "8081"]
+    ports:
+      - "8081:8081"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-quantaflow}
+      POSTGRES_USER: ${POSTGRES_USER:-quantaflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-quantaflow}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-changeme123}
+      MINIO_BUCKET: ${MINIO_BUCKET:-quanta-flow}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "scripts/health_check.py", "--mode", "cli"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   airflow:
     build:
       context: .
@@ -66,6 +95,11 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "scripts/health_check.py", "--mode", "cli"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:
