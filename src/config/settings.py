@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     minio_bucket: str = "quanta-flow"
 
     alert_webhook_url: str = ""
+    sentry_dsn: str = ""
+    environment: str = "production"
 
     pipeline_version: str = "0.1.0"
     data_interval_start: str = "2024-01"

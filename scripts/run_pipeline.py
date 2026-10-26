@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import polars as pl  # noqa: E402
 
+from src.common.error_tracking import capture_pipeline_exception, init_error_tracking
 from src.common.errors import DataQualityGateError
 from src.common.hashing import schema_hash, sha256_file
 from src.common.logging import configure_logging, get_logger
@@ -32,6 +33,7 @@ logger = get_logger(__name__)
 def run_pipeline(period: str, skip_upload: bool = False) -> int:
     configure_logging()
     settings = get_settings()
+    init_error_tracking(settings.sentry_dsn, settings.environment, settings.pipeline_version)
     run_ctx = RunContext()
     start_time = time.time()
 
@@ -191,6 +193,9 @@ def run_pipeline(period: str, skip_upload: bool = False) -> int:
     try:
         dq.enforce_wap_gate(report)
     except DataQualityGateError as gate_err:
+        capture_pipeline_exception(
+            gate_err, {"run_id": run_ctx.run_id, "period": period, "layer": "wap_gate"}
+        )
         logger.error(
             "pipeline_wap_gate_tripped",
             run_id=run_ctx.run_id,

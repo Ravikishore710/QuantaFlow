@@ -6,6 +6,7 @@ import duckdb
 import polars as pl
 
 from src.common.db import PG_ERRORS, DatabaseConnectionManager
+from src.common.error_tracking import capture_pipeline_exception
 from src.common.logging import get_logger
 from src.config.settings import Settings, get_settings
 
@@ -139,6 +140,9 @@ class WarehouseLoader:
                 conn.commit()
                 logger.info("postgres_hourly_trip_metrics_loaded", count=row_count)
             except PG_ERRORS as exc:
+                capture_pipeline_exception(
+                    exc, {"table": "hourly_trip_metrics", "layer": "warehouse"}
+                )
                 logger.debug("postgres_load_fallback", table="hourly_trip_metrics", error=str(exc))
             finally:
                 conn.close()
