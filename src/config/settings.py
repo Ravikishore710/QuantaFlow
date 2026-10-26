@@ -4,6 +4,8 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from src.common.secrets import SecretManager
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -39,9 +41,14 @@ class Settings(BaseSettings):
     row_count_change_threshold: float = Field(default=0.30, description="Volume anomaly threshold")
 
     @property
+    def resolved_postgres_password(self) -> str:
+        sm = SecretManager()
+        return sm.get_secret_value("postgres_password", default=self.postgres_password)
+
+    @property
     def postgres_dsn(self) -> str:
         return (
-            f"postgresql://{self.postgres_user}:{self.postgres_password}"
+            f"postgresql://{self.postgres_user}:{self.resolved_postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
