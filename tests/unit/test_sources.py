@@ -138,3 +138,88 @@ def test_noaa_weather_source(tmp_path: Path) -> None:
     validation = source.validate(downloaded)
     assert validation.passed is True
     assert validation.row_count == 744
+
+
+def test_noaa_weather_download_via_requests(tmp_path: Path) -> None:
+    source = NOAAWeatherSource(station_id="USW00094728")
+    discovered = source.discover("2024-01")
+
+    # Create in-memory parquet data with Year, Month, STATION, and weather fields
+    sample_data = pl.DataFrame({
+        "Year": ["2024", "2024", "2023"],
+        "Month": ["01", "01", "12"],
+        "STATION": ["USW00094728", "USW00094728", "USW00094728"],
+        "LATITUDE": [40.78, 40.78, 40.78],
+        "LONGITUDE": [-73.97, -73.97, -73.97],
+        "DATE": [
+            "2024-01-01T00:00:00",
+            "2024-01-01T01:00:00",
+            "2023-12-31T23:00:00",
+        ],
+        "temperature": [2.5, 3.1, -1.0],
+        "dew_point_temperature": [-1.2, -0.8, -3.0],
+        "wind_speed": [5.2, 6.0, 4.0],
+        "precipitation": [0.0, 0.5, 0.0],
+        "visibility": [16000.0, 15000.0, 10000.0],
+        "relative_humidity": [75.0, 80.0, 70.0],
+        "wind_direction": [180.0, 190.0, 200.0],
+    })
+    import io
+    buf = io.BytesIO()
+    sample_data.write_parquet(buf)
+
+    mock_resp = MagicMock()
+    mock_resp.content = buf.getvalue()
+    mock_resp.raise_for_status = MagicMock()
+
+    dest_dir = tmp_path / "fresh_noaa"
+    with patch("requests.get", return_value=mock_resp):
+        downloaded = source.download(discovered, dest_dir)
+        assert downloaded.local_path.exists()
+        df = pl.read_parquet(downloaded.local_path)
+        assert len(df) == 2
+        assert "timestamp" in df.columns
+        assert "dew_point" in df.columns
+
+    # Test validation failure on empty parquet
+    empty_pq = tmp_path / "empty.parquet"
+    pl.DataFrame({"timestamp": [], "station_id": []}).write_parquet(empty_pq)
+    empty_downloaded = DownloadedFile(
+        discovered=discovered, local_path=empty_pq, file_size_bytes=10
+    )
+    val = source.validate(empty_downloaded)
+    assert val.passed is False
+
+
+def test_noaa_weather_download_date_filter(tmp_path: Path) -> None:
+    source = NOAAWeatherSource(station_id="USW00094728")
+    discovered = source.discover("2024-01")
+
+    # DataFrame with DATE and direct column names without Year/Month
+    sample_data = pl.DataFrame({
+        "DATE": ["2024-01-01T00:00:00", "2024-02-01T00:00:00"],
+        "station_id": ["USW00094728", "USW00094728"],
+        "latitude": [40.78, 40.78],
+        "longitude": [-73.97, -73.97],
+        "temperature": [2.5, 4.0],
+        "dew_point": [-1.2, -0.5],
+        "wind_speed": [5.2, 3.1],
+        "precipitation": [0.0, 0.0],
+        "visibility": [16000.0, 16000.0],
+        "relative_humidity": [75.0, 70.0],
+        "wind_direction": [180.0, 180.0],
+    })
+    import io
+    buf = io.BytesIO()
+    sample_data.write_parquet(buf)
+
+    mock_resp = MagicMock()
+    mock_resp.content = buf.getvalue()
+    mock_resp.raise_for_status = MagicMock()
+
+    dest_dir = tmp_path / "date_filtered_noaa"
+    with patch("requests.get", return_value=mock_resp):
+        downloaded = source.download(discovered, dest_dir)
+        df = pl.read_parquet(downloaded.local_path)
+        assert len(df) == 1
+

@@ -56,12 +56,12 @@ warn_unused_ignores = true
 
 [tool.pytest.ini_options]
 minversion = "6.0"
-addopts = "-ra -q --cov=src --cov-fail-under=80"
+addopts = "-ra -q --cov=src --cov-fail-under=90"
 testpaths = ["tests"]
 pythonpath = ["."]
 
 [tool.coverage.report]
-fail_under = 80
+fail_under = 90
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",

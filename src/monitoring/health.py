@@ -147,5 +147,7 @@ def run_health_server(host: str = "0.0.0.0", port: int = 8081) -> None:
     logger.info("health_server_started", host=host, port=port)
     try:
         server.serve_forever()
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("health_server_stopped")
     finally:
         server.server_close()
