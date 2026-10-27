@@ -1,4 +1,5 @@
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
@@ -33,7 +34,12 @@ from src.warehouse.loader import WarehouseLoader
 logger = get_logger(__name__)
 
 
-def run_pipeline(period: str, skip_upload: bool = False) -> int:
+def run_pipeline(
+    period: str,
+    skip_upload: bool = False,
+    dry_run: bool = False,
+    output_json: bool = False,
+) -> int:
     req = PipelineExecutionRequest(period=period, skip_upload=skip_upload)
     period = req.period
     skip_upload = req.skip_upload
@@ -41,6 +47,19 @@ def run_pipeline(period: str, skip_upload: bool = False) -> int:
     configure_logging()
     settings = get_settings()
     init_error_tracking(settings.sentry_dsn, settings.environment, settings.pipeline_version)
+
+    if dry_run:
+        summary = {
+            "status": "dry_run_success",
+            "period": period,
+            "skip_upload": skip_upload,
+            "engine_mode": settings.engine_mode,
+            "dry_run": True,
+        }
+        logger.info("pipeline_dry_run_completed", **summary)
+        if output_json:
+            sys.stdout.write(json.dumps(summary) + "\n")
+        return 0
 
     lock_mgr = PartitionLockManager(
         period=period, engine_mode=settings.engine_mode, settings=settings
@@ -52,7 +71,19 @@ def run_pipeline(period: str, skip_upload: bool = False) -> int:
         return 1
 
     try:
-        return _run_pipeline_stages(period=period, skip_upload=skip_upload, settings=settings)
+        code = _run_pipeline_stages(period=period, skip_upload=skip_upload, settings=settings)
+        if output_json:
+            sys.stdout.write(
+                json.dumps(
+                    {
+                        "status": "success" if code == 0 else "failed",
+                        "period": period,
+                        "exit_code": code,
+                    }
+                )
+                + "\n"
+            )
+        return code
     finally:
         lock_mgr.release()
 
@@ -310,8 +341,27 @@ def main() -> None:
         default=False,
         help="Skip MinIO/S3 upload and run locally",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Run non-mutating validation check without data execution",
+    )
+    parser.add_argument(
+        "--output-json",
+        action="store_true",
+        default=False,
+        help="Emit execution summary as structured JSON to stdout",
+    )
     args = parser.parse_args()
-    sys.exit(run_pipeline(args.period, skip_upload=args.skip_upload))
+    sys.exit(
+        run_pipeline(
+            args.period,
+            skip_upload=args.skip_upload,
+            dry_run=args.dry_run,
+            output_json=args.output_json,
+        )
+    )
 
 
 if __name__ == "__main__":
