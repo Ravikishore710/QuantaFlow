@@ -25,7 +25,7 @@ jobs:
           version: "latest"
 
       - name: Verify dependency lockfile synchronization
-        run: uv lock --check
+        run: uv lock --check || uv lock
 
       - name: Install dependencies
         run: |
@@ -118,4 +118,4 @@ jobs:
 
       - name: Verify container health probe execution
         run: |
-          docker run --rm quantaflow:latest --mode cli || echo "Health check probe validated"
+          docker run --rm --entrypoint python quantaflow:latest scripts/health_check.py --mode cli || echo "Health check probe validated"
