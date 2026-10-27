@@ -13,6 +13,15 @@ class WarehouseConnectionError(QuantaFlowError, ConnectionError):
     pass
 
 
+class PartitionLockAcquisitionError(QuantaFlowError, TimeoutError):
+    """Raised when acquiring a distributed partition lock fails or times out."""
+
+    def __init__(self, period: str, reason: str = "Partition is currently locked") -> None:
+        super().__init__(f"Failed to acquire lock for period '{period}': {reason}")
+        self.period = period
+        self.reason = reason
+
+
 class ManifestPersistenceError(QuantaFlowError, OSError):
     """Raised when saving or loading the file manifest fails."""
 

@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     postgres_db: str = "quantaflow"
     postgres_user: str = "quantaflow"
     postgres_password: str = "changeme"
+    engine_mode: str = "auto"
 
     minio_endpoint: str = "http://localhost:9000"
     minio_access_key: str = "quantaflow"

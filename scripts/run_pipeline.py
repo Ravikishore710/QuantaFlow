@@ -9,11 +9,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import polars as pl  # noqa: E402
 
 from src.common.error_tracking import capture_pipeline_exception, init_error_tracking
-from src.common.errors import DataQualityGateError
+from src.common.errors import DataQualityGateError, PartitionLockAcquisitionError
 from src.common.hashing import schema_hash, sha256_file
+from src.common.locking import PartitionLockManager
 from src.common.logging import configure_logging, get_logger
 from src.common.run_context import RunContext
-from src.config.settings import get_settings
+from src.config.settings import Settings, get_settings
 from src.ingestion.manifest import ManifestRecord, ManifestStore, utc_now_iso
 from src.lineage.tracker import LineageGraph
 from src.monitoring.pipeline_monitor import PipelineMonitor
@@ -40,6 +41,23 @@ def run_pipeline(period: str, skip_upload: bool = False) -> int:
     configure_logging()
     settings = get_settings()
     init_error_tracking(settings.sentry_dsn, settings.environment, settings.pipeline_version)
+
+    lock_mgr = PartitionLockManager(
+        period=period, engine_mode=settings.engine_mode, settings=settings
+    )
+    try:
+        lock_mgr.acquire()
+    except PartitionLockAcquisitionError as lock_err:
+        logger.error("pipeline_partition_lock_failed", period=period, error=str(lock_err))
+        return 1
+
+    try:
+        return _run_pipeline_stages(period=period, skip_upload=skip_upload, settings=settings)
+    finally:
+        lock_mgr.release()
+
+
+def _run_pipeline_stages(period: str, skip_upload: bool, settings: Settings) -> int:
     run_ctx = RunContext()
     start_time = time.time()
 
