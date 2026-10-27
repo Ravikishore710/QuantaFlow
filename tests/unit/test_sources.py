@@ -3,6 +3,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import polars as pl
+import pytest
 
 from src.sources.base import DownloadedFile
 from src.sources.noaa_weather import NOAAWeatherSource
@@ -73,7 +74,10 @@ def test_taxi_zone_source(tmp_path: Path) -> None:
     assert any("not unique" in err for err in bad_validation.errors)
 
 
-def test_taxi_zone_download_via_requests(tmp_path: Path) -> None:
+def test_taxi_zone_download_via_requests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("QUANTAFLOW_OFFLINE_FIXTURES_DIR", raising=False)
     source = TaxiZoneSource()
     discovered = source.discover(period="2024-01")
 
@@ -91,7 +95,7 @@ def test_taxi_zone_download_via_requests(tmp_path: Path) -> None:
         assert downloaded.file_size_bytes == len(mock_resp.content)
 
 
-def test_tlc_taxi_source(tmp_path: Path) -> None:
+def test_tlc_taxi_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     source = TLCTaxiSource()
     discovered = source.discover("2024-01")
     assert discovered.dataset == "nyc_tlc_yellow"
@@ -106,7 +110,8 @@ def test_tlc_taxi_source(tmp_path: Path) -> None:
     downloaded = source.download(discovered, dest_dir)
     assert downloaded.local_path == local_pq
 
-    # Mock requests download
+    # Mock requests download without fixtures
+    monkeypatch.delenv("QUANTAFLOW_OFFLINE_FIXTURES_DIR", raising=False)
     dest_dir2 = tmp_path / "fresh_tlc"
     mock_resp = MagicMock()
     mock_resp.__enter__.return_value = mock_resp
@@ -140,7 +145,10 @@ def test_noaa_weather_source(tmp_path: Path) -> None:
     assert validation.row_count == 744
 
 
-def test_noaa_weather_download_via_requests(tmp_path: Path) -> None:
+def test_noaa_weather_download_via_requests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("QUANTAFLOW_OFFLINE_FIXTURES_DIR", raising=False)
     source = NOAAWeatherSource(station_id="USW00094728")
     discovered = source.discover("2024-01")
 
@@ -191,7 +199,10 @@ def test_noaa_weather_download_via_requests(tmp_path: Path) -> None:
     assert val.passed is False
 
 
-def test_noaa_weather_download_date_filter(tmp_path: Path) -> None:
+def test_noaa_weather_download_date_filter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("QUANTAFLOW_OFFLINE_FIXTURES_DIR", raising=False)
     source = NOAAWeatherSource(station_id="USW00094728")
     discovered = source.discover("2024-01")
 
