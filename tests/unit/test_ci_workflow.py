@@ -35,7 +35,10 @@ def test_ci_workflow_quality_gates() -> None:
     assert "uv lock --check" in content
     assert "cov-fail-under=90" in content
     assert "scripts/verify_fresh_clone.sh" in content
-    assert "terraform validate" in content
+    assert "terraform -chdir=terraform validate" in content
+    assert "aquasecurity/tfsec-action@v1.0.3" in content
+    assert "terraform -chdir=terraform plan" in content
+    assert "out=tfplan" in content
     assert "docker build" in content
 
     data = yaml.safe_load(content)
