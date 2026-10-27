@@ -231,7 +231,7 @@ QuantaFlow provides modular, zero-hardcoded-secret Terraform configurations targ
 
 ## 9. Test Suite Summary
 
-The test suite contains **153 automated tests** passing with 100% green status and **$\ge 92\%$ test coverage** (`--cov-fail-under=90`):
+The test suite contains **154 automated tests** passing with 100% green status and **$\ge 92\%$ test coverage** (`--cov-fail-under=90`):
 - `tests/unit/test_lineage_tracker.py`: Column-level graph provenance and OpenLineage standard JSON export.
 - `tests/unit/test_postgres_staging.py`: High-throughput PostgreSQL COPY staging bulk upsert and rollback handling.
 - `tests/unit/test_quality_anomaly.py`: Median Absolute Deviation (MAD) robust statistical Z-score volume anomaly detection.
