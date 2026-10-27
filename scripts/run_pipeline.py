@@ -15,6 +15,7 @@ from src.common.logging import configure_logging, get_logger
 from src.common.run_context import RunContext
 from src.config.settings import get_settings
 from src.ingestion.manifest import ManifestRecord, ManifestStore, utc_now_iso
+from src.lineage.tracker import LineageGraph
 from src.monitoring.pipeline_monitor import PipelineMonitor
 from src.sources.noaa_weather import NOAAWeatherSource
 from src.sources.taxi_zone import TaxiZoneSource
@@ -260,6 +261,16 @@ def run_pipeline(period: str, skip_upload: bool = False) -> int:
         rows_rejected=rejected_rows,
     )
 
+    # -------------------------------------------------------------
+    # 10. Emit Programmatic OpenLineage Event
+    # -------------------------------------------------------------
+    lineage_graph = LineageGraph()
+    lineage_artifact = lineage_graph.export_openlineage_event(
+        run_id=run_ctx.run_id,
+        period=period,
+        output_dir=settings.reports_dir,
+    )
+
     logger.info(
         "pipeline_completed_successfully",
         run_id=run_ctx.run_id,
@@ -267,6 +278,7 @@ def run_pipeline(period: str, skip_upload: bool = False) -> int:
         duration_seconds=round(duration, 2),
         rows_valid=rows_valid,
         rows_rejected=rejected_rows,
+        lineage_artifact=str(lineage_artifact),
     )
     return 0
 
