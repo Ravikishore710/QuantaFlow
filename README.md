@@ -9,6 +9,14 @@
 
 ---
 
+### Project Scope & Primary Domain
+
+- **Primary Domain:** **Data Engineering & Analytical Lakehouse Platform** ($\approx 85\%$ of core logic). Implements Medallion transformation layers (Bronze/Silver/Gold), Write-Audit-Publish (WAP) circuit breakers, strict contract schema evolution, and column-level OpenLineage tracking.
+- **Lineage Specification:** Detailed column-level provenance and OpenLineage JSON specifications are documented in [`docs/lineage.md`](docs/lineage.md).
+- **Supporting Cloud Infrastructure:** Modular Terraform scripts under [`terraform/`](terraform/) provide zero-hardcoded-secret AWS cloud deployment automation (S3 lakehouse, RDS PostgreSQL 16, ECS Fargate), documented in [`terraform/README.md`](terraform/README.md).
+
+---
+
 ## 1. Architecture Overview
 
 QuantaFlow processes raw data through an idempotent, contract-enforced **Medallion Architecture**:
@@ -223,8 +231,18 @@ QuantaFlow provides modular, zero-hardcoded-secret Terraform configurations targ
 
 ## 9. Test Suite Summary
 
-The test suite contains **108 automated tests** passing with 100% green status and **$\ge 92\%$ test coverage** (`--cov-fail-under=90`):
-- `tests/unit/test_db_manager.py`: Centralized PostgreSQL and DuckDB connection handling, auto-fallback.
+The test suite contains **153 automated tests** passing with 100% green status and **$\ge 92\%$ test coverage** (`--cov-fail-under=90`):
+- `tests/unit/test_lineage_tracker.py`: Column-level graph provenance and OpenLineage standard JSON export.
+- `tests/unit/test_postgres_staging.py`: High-throughput PostgreSQL COPY staging bulk upsert and rollback handling.
+- `tests/unit/test_quality_anomaly.py`: Median Absolute Deviation (MAD) robust statistical Z-score volume anomaly detection.
+- `tests/contracts/test_schema_evolution.py`: Formal schema evolution rules (BACKWARD, FORWARD, FULL) and safe type widening.
+- `tests/unit/test_partition_locking.py`: Distributed partition locking via PostgreSQL advisory locks and atomic file locks.
+- `tests/unit/test_storage_lifecycle.py`: Columnar partition compaction, retention TTL pruning, and disk usage telemetry.
+- `tests/unit/test_pipeline_cli.py`: Non-mutating `--dry-run` validation and structured `--output-json` CLI modes.
+- `tests/contracts/test_env_example_parity.py`: AST-based verification ensuring code/settings parity with `.env.example`.
+- `tests/unit/test_offline_isolation.py`: Zero live network call socket isolation guard across offline tests.
+- `tests/unit/test_airflow_dag.py`: DAG bytecode compilation, modular task execution, and SLA/failure callbacks.
+- `tests/unit/test_db_manager.py`: Centralized PostgreSQL and DuckDB connection handling and auto-fallback.
 - `tests/unit/test_health_check.py`: System health checks, HTTP readiness probes, CLI invocation codes.
 - `tests/unit/test_error_tracking.py`: Sentry SDK initialization and pipeline exception capture.
 - `tests/unit/test_secrets.py`: Multi-backend secret resolution and credential masking.
@@ -239,7 +257,6 @@ The test suite contains **108 automated tests** passing with 100% green status a
 - `tests/unit/test_quality_framework.py`: Completeness, validity, freshness, volume checks, WAP gate circuit breaker, webhook alerting.
 - `tests/unit/test_warehouse.py`: DuckDB table loads, PostgreSQL COPY staging upsert, fallback handling.
 - `tests/unit/test_replay_quarantine.py`: Quarantine DLQ inspection, dry run, and live silver recovery.
-- `tests/unit/test_airflow_dag.py`: DAG bytecode compilation, AST structure, task callable execution.
 - `tests/contracts/`: YAML schema parsing, required column checks, evolution policies.
 - `tests/e2e/test_milestone1_idempotency.py`: Re-run skipping via cryptographic file manifest matching with offline fixtures.
 - `tests/integration/test_end_to_end_pipeline.py`: Full raw $\rightarrow$ bronze $\rightarrow$ silver $\rightarrow$ gold integration flow running 100% offline.

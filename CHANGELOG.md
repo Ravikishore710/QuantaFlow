@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-10-27
+
+### Added
+- **Distributed Partition Lock Manager (`src/common/locking.py`):** Concurrency isolation engine using PostgreSQL session advisory locks (`pg_try_advisory_lock`) and POSIX atomic filesystem locks (`O_CREAT | os.O_EXCL`) with automated stale TTL breaking and dead-process cleanup.
+- **Storage Lifecycle & Partition Compaction (`src/storage/lifecycle.py`):** Partition consolidation engine merging multi-part parquet chunks into single columnar files with row-count checksums, alongside retention TTL directory pruning and disk usage telemetry.
+- **CLI Operational Diagnostics & Dry-Run Mode (`scripts/run_pipeline.py`):** Non-mutating `--dry-run` validation flag inspecting source discovery and warehouse readiness, plus `--output-json` for orchestrator integration.
+- **DevSecOps IaC Policy Scanning (`.github/workflows/ci.yml`):** Integrated `aquasecurity/tfsec-action@v1.0.3` security scanner and automated offline `terraform plan` verification in CI.
+
+---
+
+## [1.3.0] - 2026-10-27
+
+### Added
+- **Column-Level Medallion Lineage Engine (`src/lineage/tracker.py`):** Graph-based column derivation tracking exporting OpenLineage standard JSON events (`openlineage_run_{run_id}.json`) and comprehensive documentation (`docs/lineage.md`).
+- **PostgreSQL COPY Staging Bulk Loader (`src/warehouse/postgres_staging.py`):** Decoupled high-performance staging table bulk loader with transactional swap and automatic rollback, keeping `WarehouseLoader` under 250 LOC.
+- **Robust Statistical Anomaly Detection (`src/quality/anomaly.py`):** Median Absolute Deviation (MAD) modified Z-score algorithm with rolling historical baseline integrated into the Data Quality framework.
+- **Formal Schema Evolution Validation (`src/contracts/evolution.py`):** Schema compatibility engine enforcing BACKWARD, FORWARD, and FULL evolution rules with safe columnar type widening.
+- **Modular Airflow Pipeline Callables & SLA Callbacks (`src/orchestration/`):** Pure-callable execution stages with webhook-backed failure and SLA miss alerts (`on_failure_alert_callback`, `sla_miss_callback`).
+- **Offline Network Isolation Guard (`tests/conftest.py`):** Autouse socket guard strictly preventing unmocked external egress calls during testing.
+- **AST Environment Parity Contract (`tests/contracts/test_env_example_parity.py`):** AST-based verification ensuring parity between codebase environment variables and `.env.example`.
+
+### Changed
+- Elevated test coverage floor to 90% (`94.12%` achieved across 153 automated tests).
+- Consolidated Terraform modules into unified `terraform/main.tf` with pinned providers, KMS encryption, and root module documentation in `terraform/README.md`.
+
+---
+
 ## [1.2.0] - 2026-10-26
 
 ### Added

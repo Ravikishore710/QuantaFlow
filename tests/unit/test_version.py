@@ -10,7 +10,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 def test_package_version_sync() -> None:
     """Verify src.__version__ matches pyproject.toml version exactly."""
-    assert src.__version__ == "1.2.0"
+    assert src.__version__ == "1.4.0"
 
     pyproject_path = PROJECT_ROOT / "pyproject.toml"
     with open(pyproject_path, "rb") as f:
