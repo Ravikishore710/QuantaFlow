@@ -10,6 +10,7 @@ import polars as pl
 from src.common.errors import DataQualityGateError
 from src.common.logging import get_logger
 from src.config.settings import Settings, get_settings
+from src.quality.anomaly import StatisticalAnomalyDetector
 
 logger = get_logger(__name__)
 
@@ -89,6 +90,7 @@ class DataQualityFramework:
         run_id: str,
         period: str,
         previous_row_count: int | None = None,
+        historical_baselines: dict[str, list[float]] | None = None,
     ) -> QualitySuiteReport:
         """Evaluates 6 dimensions of data quality against clean trip data:
         1. Completeness: Zero NULLs across critical columns.
@@ -242,6 +244,44 @@ class DataQualityFramework:
                 details=vol_details,
             )
         )
+
+        # 7. Statistical Anomaly Detection (MAD Z-Score)
+        if historical_baselines:
+            detector = StatisticalAnomalyDetector()
+            current_metrics: dict[str, float] = {
+                "row_count": float(rows_total),
+            }
+            if "fare_amount" in df.columns and rows_total > 0:
+                mean_fare = df["fare_amount"].mean()
+                if isinstance(mean_fare, (int, float)):
+                    current_metrics["mean_fare"] = float(mean_fare)
+            if "trip_distance" in df.columns and rows_total > 0:
+                mean_dist = df["trip_distance"].mean()
+                if isinstance(mean_dist, (int, float)):
+                    current_metrics["mean_distance"] = float(mean_dist)
+
+            anomaly_results = detector.evaluate_batch(current_metrics, historical_baselines)
+            anomaly_count = sum(1 for a in anomaly_results if a.is_anomaly)
+            checks.append(
+                QualityCheckResult(
+                    check_name="statistical_mad_anomaly_check",
+                    dimension="statistical_distribution",
+                    severity="warning",
+                    rows_checked=len(anomaly_results),
+                    violations=anomaly_count,
+                    status="passed" if anomaly_count == 0 else "failed",
+                    details={
+                        a.metric_name: {
+                            "observed": a.observed_value,
+                            "median": a.baseline_median,
+                            "z_score": a.z_score,
+                            "is_anomaly": a.is_anomaly,
+                            "reason": a.reason,
+                        }
+                        for a in anomaly_results
+                    },
+                )
+            )
 
         failed_errors = sum(1 for c in checks if c.status == "failed" and c.severity == "error")
         overall_status = "failed" if failed_errors > 0 else "passed"
