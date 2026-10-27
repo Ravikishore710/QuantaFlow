@@ -163,3 +163,63 @@ def test_health_server_run_and_handler_log() -> None:
         run_health_server("127.0.0.1", 8089)
         mock_instance.server_close.assert_called_once()
 
+
+def test_health_app_routes_and_dispatch() -> None:
+    from src.monitoring.health import (
+        app,
+        health_endpoint,
+        liveness_endpoint,
+        prometheus_metrics_endpoint,
+        readiness_endpoint,
+    )
+
+    # Test direct endpoint functions
+    h = health_endpoint()
+    assert "status" in h
+    live = liveness_endpoint()
+    assert "status" in live
+    r = readiness_endpoint()
+    assert "status" in r
+
+    m = prometheus_metrics_endpoint()
+    assert "quantaflow_health_status" in m
+    assert "quantaflow_disk_free_gigabytes" in m
+
+    # Test router dispatch
+    for path in ("/health", "/healthz", "/readyz"):
+        disp = app.dispatch(path)
+        assert disp is not None
+        code, ctype, body = disp
+        assert code in (200, 503)
+        assert ctype == "application/json"
+        assert len(body) > 0
+
+    metrics_disp = app.dispatch("/metrics")
+    assert metrics_disp is not None
+    code, ctype, body = metrics_disp
+    assert code == 200
+    assert "text/plain" in ctype
+    assert b"quantaflow_health_status" in body
+
+    # Test unknown path returns None
+    assert app.dispatch("/unknown_route") is None
+
+
+def test_health_handler_metrics_http() -> None:
+    mock_wfile = BytesIO()
+
+    class TestMetricsHandler(HealthCheckHandler):
+        def __init__(self) -> None:
+            self.path = "/metrics"
+            self.wfile = mock_wfile
+            self.send_response = MagicMock()  # type: ignore[assignment]
+            self.send_header = MagicMock()  # type: ignore[assignment]
+            self.end_headers = MagicMock()  # type: ignore[assignment]
+
+    handler = TestMetricsHandler()
+    handler.do_GET()
+
+    handler.send_response.assert_called_with(200)
+    handler.send_header.assert_any_call("Content-Type", "text/plain; version=0.0.4")
+    assert b"quantaflow_health_status" in mock_wfile.getvalue()
+

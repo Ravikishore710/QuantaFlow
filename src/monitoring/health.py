@@ -1,5 +1,6 @@
 import json
 import shutil
+from collections.abc import Callable
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -117,17 +118,90 @@ def check_system_health(
     }
 
 
+class HealthApp:
+    """Lightweight zero-dependency router exposing decorated endpoints."""
+
+    def __init__(self) -> None:
+        self.routes: dict[str, Callable[[], Any]] = {}
+
+    def get(self, path: str) -> Callable[[Callable[[], Any]], Callable[[], Any]]:
+        """Decorator to register a GET route handler."""
+
+        def decorator(func: Callable[[], Any]) -> Callable[[], Any]:
+            self.routes[path] = func
+            return func
+
+        return decorator
+
+    def route(self, path: str) -> Callable[[Callable[[], Any]], Callable[[], Any]]:
+        """Alternative decorator syntax alias."""
+        return self.get(path)
+
+    def dispatch(self, path: str) -> tuple[int, str, bytes] | None:
+        """Dispatch an incoming path to its registered handler."""
+        handler = self.routes.get(path)
+        if not handler:
+            return None
+
+        result = handler()
+        if isinstance(result, str):
+            return 200, "text/plain; version=0.0.4", result.encode("utf-8")
+
+        status_code = 200 if result.get("status") == "healthy" else 503
+        payload = json.dumps(result, indent=2).encode("utf-8")
+        return status_code, "application/json", payload
+
+
+# Global router instance for decorator registration
+app = HealthApp()
+router = app
+
+
+@app.get("/health")
+def health_endpoint() -> dict[str, Any]:
+    """Inspect general system operational health."""
+    return check_system_health(engine_mode="auto")
+
+
+@app.get("/healthz")
+def liveness_endpoint() -> dict[str, Any]:
+    """Kubernetes liveness probe endpoint."""
+    return check_system_health(engine_mode="auto")
+
+
+@app.get("/readyz")
+def readiness_endpoint() -> dict[str, Any]:
+    """Kubernetes readiness probe verifying database and storage connectivity."""
+    return check_system_health(engine_mode="auto")
+
+
+@app.get("/metrics")
+def prometheus_metrics_endpoint() -> str:
+    """Prometheus exposition metrics format for operational monitoring."""
+    health = check_system_health(engine_mode="auto")
+    is_healthy = 1 if health["status"] == "healthy" else 0
+    free_gb = health["checks"].get("disk", {}).get("free_gb", 0.0)
+
+    lines = [
+        "# HELP quantaflow_health_status System operational status (1=healthy, 0=unhealthy)",
+        "# TYPE quantaflow_health_status gauge",
+        f"quantaflow_health_status {is_healthy}",
+        "# HELP quantaflow_disk_free_gigabytes Free disk storage space in gigabytes",
+        "# TYPE quantaflow_disk_free_gigabytes gauge",
+        f"quantaflow_disk_free_gigabytes {free_gb}",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 class HealthCheckHandler(BaseHTTPRequestHandler):
-    """Lightweight HTTP request handler for container readiness and liveness probes."""
+    """HTTP request handler dispatching requests through the decorated HealthApp router."""
 
     def do_GET(self) -> None:
-        if self.path in ("/health", "/healthz", "/readyz"):
-            result = check_system_health(engine_mode="auto")
-            status_code = 200 if result["status"] == "healthy" else 503
-            payload = json.dumps(result, indent=2).encode("utf-8")
-
+        dispatched = app.dispatch(self.path)
+        if dispatched is not None:
+            status_code, content_type, payload = dispatched
             self.send_response(status_code)
-            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
