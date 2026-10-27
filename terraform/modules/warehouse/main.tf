@@ -1,3 +1,16 @@
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.40.0"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6.0"
+    }
+  }
+}
+
 resource "random_password" "db_password" {
   length           = 24
   special          = true

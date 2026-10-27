@@ -9,18 +9,31 @@ TERRAFORM_DIR = Path(__file__).parent.parent.parent / "terraform"
 
 
 def test_terraform_root_files_exist() -> None:
-    """Verify all root Terraform files exist and are populated."""
+    """Verify all root Terraform files and documentation exist and are populated."""
     root_files = [
-        "versions.tf",
         "variables.tf",
         "main.tf",
         "outputs.tf",
         "terraform.tfvars.example",
+        "README.md",
     ]
     for filename in root_files:
         file_path = TERRAFORM_DIR / filename
         assert file_path.is_file(), f"Missing required Terraform root file: {filename}"
         assert file_path.stat().st_size > 0, f"Terraform root file is empty: {filename}"
+
+
+def test_terraform_root_backend_and_providers() -> None:
+    """Verify root main.tf defines encrypted S3 remote state and pinned providers."""
+    main_tf = (TERRAFORM_DIR / "main.tf").read_text(encoding="utf-8")
+    assert "backend \"s3\"" in main_tf
+    assert "encrypt        = true" in main_tf
+    assert "dynamodb_table = \"quantaflow-terraform-locks\"" in main_tf
+    assert "required_providers" in main_tf
+    assert "hashicorp/aws" in main_tf
+    assert "~> 5.40.0" in main_tf
+    assert "hashicorp/random" in main_tf
+    assert "~> 3.6.0" in main_tf
 
 
 def test_terraform_modules_structure() -> None:
@@ -47,6 +60,7 @@ def test_terraform_storage_security() -> None:
     assert "restrict_public_buckets" in storage_main
     assert "aws_s3_bucket_server_side_encryption_configuration" in storage_main
     assert "aws_s3_bucket_versioning" in storage_main
+    assert "enable_key_rotation     = true" in storage_main
 
 
 def test_terraform_warehouse_security() -> None:
@@ -71,6 +85,7 @@ def test_terraform_orchestration_security() -> None:
     assert "aws_kms_key" in orchestration_main
     assert "enable_key_rotation     = true" in orchestration_main
     assert "aws_cloudwatch_log_group" in orchestration_main
+    assert "retention_in_days = 90" in orchestration_main
     assert "aws_ecs_cluster" in orchestration_main
     assert "containerInsights" in orchestration_main
     assert "aws_ecs_task_definition" in orchestration_main

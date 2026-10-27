@@ -1,3 +1,12 @@
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.40.0"
+    }
+  }
+}
+
 resource "aws_kms_key" "logs_key" {
   description             = "KMS key for CloudWatch pipeline execution log encryption"
   deletion_window_in_days = 30
@@ -6,7 +15,7 @@ resource "aws_kms_key" "logs_key" {
 
 resource "aws_cloudwatch_log_group" "pipeline" {
   name              = "/ecs/${var.project_name}-${var.environment}-pipeline"
-  retention_in_days = 30
+  retention_in_days = 90
   kms_key_id        = aws_kms_key.logs_key.arn
 }
 

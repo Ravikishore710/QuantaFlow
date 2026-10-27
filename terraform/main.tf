@@ -1,3 +1,42 @@
+terraform {
+  required_version = ">= 1.6.0, < 2.0.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.40.0"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6.0"
+    }
+  }
+
+  backend "s3" {
+    bucket         = "quantaflow-terraform-state"
+    key            = "prod/quantaflow.tfstate"
+    region         = "us-east-1"
+    encrypt        = true
+    kms_key_id     = "alias/quantaflow-tf-state"
+    dynamodb_table = "quantaflow-terraform-locks"
+  }
+}
+
+provider "aws" {
+  region                      = var.aws_region
+  skip_credentials_validation = true
+  skip_metadata_api_check     = true
+  skip_requesting_account_id  = true
+
+  default_tags {
+    tags = {
+      Project     = var.project_name
+      Environment = var.environment
+      ManagedBy   = "Terraform"
+    }
+  }
+}
+
 # Dedicated Networking VPC for QuantaFlow Data Lakehouse and Warehouse
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
