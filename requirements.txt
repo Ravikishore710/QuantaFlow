@@ -23,7 +23,7 @@ jmespath==1.1.0
     # via
     #   boto3
     #   botocore
-polars==1.44.2
+polars==2.1.0
     # via quanta-flow
 polars-runtime-32==1.44.2
     # via polars
