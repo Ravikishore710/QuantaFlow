@@ -39,7 +39,7 @@ pydantic-core==2.50.1
     # via pydantic
 pydantic-settings==2.16.1
     # via quanta-flow
-python-dateutil==2.9.0.post0
+python-dateutil==3.0.0
     # via botocore
 python-dotenv==1.2.4
     # via pydantic-settings
