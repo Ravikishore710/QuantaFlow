@@ -3,7 +3,7 @@
 -e .
 annotated-types==0.8.0
     # via pydantic
-boto3==1.43.118
+boto3==1.43.121
     # via quanta-flow
 botocore==1.43.118
     # via
